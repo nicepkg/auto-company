@@ -134,6 +134,92 @@ Terminal 里能用的工具**都可以用**。放手去干，唯一底线是安�
 
 需要其他工具？直接 `npm install -g`、`uv tool install`、`brew install` 装就行。
 
+## 技能武器库
+
+所有技能位于 `.claude/skills/`，任何 Agent 均可按需调用，不限角色。下表"推荐角色"仅供参考路由，**各 Agent 应自主判断当前任务是否需要某个技能**。
+
+### 调研与情报
+
+| 技能 | 能力 | 推荐角色 |
+|------|------|----------|
+| `deep-research` | 8阶段深度研究流水线，并行搜索+引用验证，输出2K-50K+字报告 | research-thompson, ceo-bezos |
+| `web-scraping` | 三层瀑布爬虫(trafilatura→requests→playwright)，反检测，社交媒体采集 | research-thompson |
+| `websh` | 网页当文件系统浏览：cd到URL、ls看链接、grep搜内容 | research-thompson, 全员 |
+| `deep-reading-analyst` | 10+思维框架深度阅读(SCQA、5W2H、六顶帽、第一性原理) | research-thompson, critic-munger |
+| `competitive-intelligence-analyst` | 8步竞品情报全流程：特征矩阵、定价对比、SWOT | research-thompson, ceo-bezos, marketing-godin |
+| `github-explorer` | 深度分析GitHub项目(Issue/Commit/社区/中文社区) | research-thompson, cto-vogels, fullstack-dhh |
+
+### 战略与商业
+
+| 技能 | 能力 | 推荐角色 |
+|------|------|----------|
+| `product-strategist` | TAM/SAM/SOM、竞争矩阵、GTM框架、波特五力 | ceo-bezos, product-norman |
+| `market-sizing-analysis` | 三种市场规模估算法(自上而下/自下而上/价值理论) | ceo-bezos, research-thompson, cfo-campbell |
+| `startup-business-models` | 创业商业模式框架分析 | ceo-bezos, cfo-campbell |
+| `micro-saas-launcher` | Micro SaaS 冷启动框架 | ceo-bezos, operations-pg |
+
+### 财务与定价
+
+| 技能 | 能力 | 推荐角色 |
+|------|------|----------|
+| `startup-financial-modeling` | 3-5年财务建模：收入预测、成本结构、现金流、三场景规划 | cfo-campbell |
+| `financial-unit-economics` | CAC/LTV/留存率/贡献利润率计算 | cfo-campbell, sales-ross |
+| `pricing-strategy` | 定价策略框架设计 | cfo-campbell, sales-ross, ceo-bezos |
+
+### 批判与风控
+
+| 技能 | 能力 | 推荐角色 |
+|------|------|----------|
+| `premortem` | Pre-Mortem分析：想象失败后逆向推导8-12个失败模式 | critic-munger |
+| `scientific-critical-thinking` | 方法论批判、偏见检测、统计审查、GRADE框架 | critic-munger, research-thompson |
+| `deep-analysis` | 代码审计+安全威胁建模+性能分析+架构评审模板 | critic-munger, cto-vogels, qa-bach |
+
+### 工程与安全
+
+| 技能 | 能力 | 推荐角色 |
+|------|------|----------|
+| `code-review-security` | 代码审查 + 安全审计一体化 | fullstack-dhh, cto-vogels |
+| `security-audit` | 独立安全审计框架 | cto-vogels, devops-hightower |
+| `devops` | DevOps 通用运维技能 | devops-hightower |
+| `tailwind-v4-shadcn` | Tailwind v4 + shadcn/ui 生产级配置指南 | ui-duarte, fullstack-dhh |
+
+### 设计与体验
+
+| 技能 | 能力 | 推荐角色 |
+|------|------|----------|
+| `ux-audit-rethink` | UX审计(7大UX因素+5可用性特征+5交互维度) | product-norman, interaction-cooper |
+| `user-persona-creation` | 用户画像创建框架(访谈→数据→Persona) | interaction-cooper, product-norman |
+| `user-research-synthesis` | 用户研究数据→洞察(Anthropic官方) | product-norman, interaction-cooper |
+
+### 营销与增长
+
+| 技能 | 能力 | 推荐角色 |
+|------|------|----------|
+| `seo-content-strategist` | SEO内容飞轮：关键词→内容集群→优化→度量 | marketing-godin |
+| `content-strategy` | 内容策略规划 | marketing-godin |
+| `seo-audit` | SEO 技术审计 | marketing-godin, devops-hightower |
+| `email-sequence` | 邮件营销序列生成 | marketing-godin, sales-ross |
+| `ph-community-outreach` | Product Hunt 发布社区推广策略 | marketing-godin, operations-pg |
+| `community-led-growth` | 社区驱动增长：大使计划、社区健康评估 | operations-pg |
+| `cold-email-sequence-generator` | 冷邮件序列生成器 | sales-ross |
+
+### 质量保障
+
+| 技能 | 能力 | 推荐角色 |
+|------|------|----------|
+| `senior-qa` | 高级QA测试策略 | qa-bach |
+
+### 内部工具
+
+| 技能 | 能力 |
+|------|------|
+| `team` | 团队编队与协作调度 |
+| `find-skills` | 发现和安装新技能 |
+| `skill-creator` | 创建自定义技能 |
+| `agent-browser` | Agent 浏览器自动化 |
+
+> **原则：技能是武器，角色是战士。好战士不会只用一把武器。** 遇到跨领域任务时，主动组合多个技能。例如 `research-thompson` 做竞品分析时可以串联 `deep-research` → `web-scraping` → `competitive-intelligence-analyst` → `deep-reading-analyst` 形成完整情报链。
+
 ## 共识记忆
 
 - **`memories/consensus.md`** — 跨周期接力棒，每轮结束前必须更新
