@@ -137,8 +137,9 @@ logs/
 .auto-loop-paused
 memories/consensus.md.bak
 
-# Projects directory (each project has its own git)
-projects/
+# Projects directory (show folder on GitHub, hide contents)
+projects/*
+!projects/.gitkeep
 .vscode-test-web
 **/.vitepress/cache
 **/.vitepress/.temp
@@ -149,11 +150,14 @@ product-materials
 tasks
 
 # ====================
-# AI Memory System
+# Docs & Memory
 # ====================
-# Session memories (per-session, not tracked)
-memories/????-??-??-*.md
+# Keep role folders, ignore their generated docs
+docs/*
+!docs/*/
+docs/*/*
+!docs/*/.gitkeep
 
-# Keep long-term memory tracked
-!memories/long-term-memory.md
+# Ignore all memories (keep folder marker only)
+memories/*
 !memories/.gitkeep
