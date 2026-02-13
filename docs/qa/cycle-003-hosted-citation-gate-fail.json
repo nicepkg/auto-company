@@ -1,0 +1,1 @@
+{"ok":false,"runId":"pilot-hosted-neg-20260213-120919","gateChecks":{"all_answers_have_citations":false,"pending_human_approval":true,"uncited_question_ids":["Q-NEG-001"]},"answerCount":1,"uncitedQuestionIds":["Q-NEG-001"],"cli":{"exitCode":1,"stdout":"Draft blocked: uncited answers found\nUncited question IDs: Q-NEG-001","stderr":""}}

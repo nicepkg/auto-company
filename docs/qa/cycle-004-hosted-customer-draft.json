@@ -1,0 +1,1 @@
+{"ok":true,"runId":"pilot-001-customer-originated-20260213-121619","gateChecks":{"all_answers_have_citations":true,"pending_human_approval":true,"uncited_question_ids":[]},"answerCount":6,"uncitedQuestionIds":[],"cli":{"exitCode":0,"stdout":"Draft complete for run pilot-001-customer-originated-20260213-121619\nDrafted answers: 6 (all cited)","stderr":""}}

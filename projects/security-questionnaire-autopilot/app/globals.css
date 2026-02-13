@@ -1,0 +1,77 @@
+:root {
+  color-scheme: light;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  background: #f6f8fb;
+  color: #13243a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 2rem 1rem 4rem;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #d9e2ef;
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.grid.cols-2 {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  padding: 0.15rem 0.65rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.status.ok {
+  background: #d7f5dd;
+  color: #1d6b28;
+}
+
+.status.blocked {
+  background: #ffe2df;
+  color: #8c1f13;
+}
+
+.button {
+  border: none;
+  border-radius: 8px;
+  background: #0a66c2;
+  color: #ffffff;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.button[disabled] {
+  background: #8ea5bc;
+  cursor: not-allowed;
+}
+
+.muted {
+  color: #546578;
+  font-size: 0.9rem;
+}
