@@ -47,8 +47,8 @@ resume: ## Resume paused daemon
 
 # === Interactive ===
 
-team: ## Start interactive Claude session with /team skill
-	cd "$(CURDIR)" && claude
+team: ## Start interactive Codex session
+	cd "$(CURDIR)" && codex
 
 # === Maintenance ===
 

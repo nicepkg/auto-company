@@ -35,13 +35,13 @@ fi
 # --- Install ---
 
 # Check dependencies
-if ! command -v claude &>/dev/null; then
-    echo "Error: 'claude' CLI not found. Install Claude Code first."
+if ! command -v codex &>/dev/null; then
+    echo "Error: 'codex' CLI not found. Install Codex CLI first."
     exit 1
 fi
 
-CLAUDE_PATH="$(command -v claude)"
-CLAUDE_DIR="$(dirname "$CLAUDE_PATH")"
+CODEX_PATH="$(command -v codex)"
+CODEX_DIR="$(dirname "$CODEX_PATH")"
 
 # Detect node path (for wrangler/npx)
 NODE_DIR=""
@@ -50,13 +50,13 @@ if command -v node &>/dev/null; then
 fi
 
 # Build PATH: include all tool directories
-DAEMON_PATH="${CLAUDE_DIR}"
+DAEMON_PATH="${CODEX_DIR}"
 [ -n "$NODE_DIR" ] && DAEMON_PATH="${DAEMON_PATH}:${NODE_DIR}"
 DAEMON_PATH="${DAEMON_PATH}:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 echo "Installing Auto Company daemon..."
 echo "  Project: $SCRIPT_DIR"
-echo "  Claude:  $CLAUDE_PATH"
+echo "  Codex:   $CODEX_PATH"
 echo "  PATH:    $DAEMON_PATH"
 
 mkdir -p "$HOME/Library/LaunchAgents" "$SCRIPT_DIR/logs"

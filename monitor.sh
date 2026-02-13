@@ -65,8 +65,16 @@ case "${1:-}" in
         latest=$(ls -t "$LOG_DIR"/cycle-*.log 2>/dev/null | head -1)
         if [ -n "$latest" ]; then
             echo "=== Latest Cycle: $(basename "$latest") ==="
-            if command -v jq &>/dev/null && jq -r '.result' "$latest" 2>/dev/null; then
-                :
+            if command -v jq &>/dev/null && jq -r '.result' "$latest" 2>/dev/null | grep -qv "^null$"; then
+                jq -r '.result' "$latest"
+            elif command -v jq &>/dev/null; then
+                # Codex JSONL logs: print the final assistant message if available.
+                message=$(jq -Rr 'fromjson? | select(.type=="item.completed" and .item.type=="agent_message") | .item.text // empty' "$latest" | tail -1)
+                if [ -n "$message" ]; then
+                    echo "$message"
+                else
+                    cat "$latest"
+                fi
             else
                 cat "$latest"
             fi

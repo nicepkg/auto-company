@@ -7,10 +7,10 @@
 14 AI agents, each modeled after a world-class expert in a specific discipline.
 They ideate products, make decisions, write code, deploy, and market without human-in-the-loop operations.
 
-Powered by [Claude Code](https://docs.anthropic.com/en/docs/claude-code) Agent Teams.
+Powered by [Codex CLI](https://developers.openai.com/codex/cli) in autonomous loop mode.
 
 [![Platform](https://img.shields.io/badge/platform-macOS-blue)](#dependencies)
-[![Runtime](https://img.shields.io/badge/runtime-Claude%20Code-orange)](https://docs.anthropic.com/en/docs/claude-code)
+[![Runtime](https://img.shields.io/badge/runtime-Codex%20CLI-orange)](https://developers.openai.com/codex/cli)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](#license)
 [![Status](https://img.shields.io/badge/status-experimental-red)](#disclaimer)
 
@@ -28,7 +28,7 @@ You start a loop. The AI team wakes up, reads shared memory, decides what to do,
 launchd (auto-restart on crash)
   └── auto-loop.sh (continuous loop)
         ├── Read PROMPT.md + consensus.md
-        ├── claude -p (run one work cycle)
+        ├── codex exec (run one work cycle)
         │   ├── Read CLAUDE.md (company charter + safety guardrails)
         │   ├── Read .claude/skills/team/SKILL.md (team formation process)
         │   ├── Assemble Agent Team (3-5 people)
@@ -38,7 +38,7 @@ launchd (auto-restart on crash)
         └── sleep -> next cycle
 ```
 
-Each cycle is an independent `claude -p` invocation. `memories/consensus.md` is the only cross-cycle state.
+Each cycle is an independent `codex exec` invocation. `memories/consensus.md` is the only cross-cycle state.
 
 ## Team Lineup (14 Agents)
 
@@ -68,8 +68,8 @@ Also includes 30+ skills (deep research, web scraping, financial modeling, SEO, 
 ```bash
 # Prerequisites:
 # - macOS
-# - Claude Code CLI installed and authenticated
-# - Claude Max/Pro subscription (or API quota)
+# - Codex CLI installed and authenticated (`codex login`)
+# - OpenAI account with available model quota
 
 git clone https://github.com/nicepkg/auto-company.git
 cd auto-company
@@ -142,7 +142,7 @@ The team runs autonomously, but you can intervene anytime:
 | Method | Action |
 |------|------|
 | Change Direction | Edit `memories/consensus.md` -> `Next Action` |
-| Pause | `make pause`, then use interactive `claude` |
+| Pause | `make pause`, then use interactive `codex` |
 | Resume | `make resume` |
 | Audit Output | Inspect `docs/*/` for each role's artifacts |
 
@@ -163,7 +163,7 @@ Hard-coded in `CLAUDE.md`, enforced for all agents:
 Override via environment variables:
 
 ```bash
-MODEL=sonnet make start                    # switch model (default: opus)
+MODEL=gpt-5-codex make start              # switch model (default: gpt-5-codex)
 LOOP_INTERVAL=60 make start                # interval 60s (default: 30)
 CYCLE_TIMEOUT_SECONDS=3600 make start      # cycle timeout 1h (default: 1800)
 MAX_CONSECUTIVE_ERRORS=3 make start        # circuit breaker threshold (default: 5)
@@ -188,7 +188,7 @@ auto-company/
 └── .claude/
     ├── agents/            # 14 agent role definitions
     ├── skills/            # 30+ skills (research, finance, marketing, etc.)
-    └── settings.json      # permissions + Agent Teams switch
+    └── settings.json      # local permission defaults for this repo
 ```
 
 ## Dependencies
@@ -196,8 +196,8 @@ auto-company/
 | Dependency | Description |
 |------|------|
 | macOS | uses `launchd` for daemon management; Linux/systemd planned later |
-| [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) | required and must be authenticated |
-| Claude subscription | Max or Pro recommended for continuous 24/7 usage |
+| [Codex CLI](https://developers.openai.com/codex/cli) | required and must be authenticated |
+| OpenAI account/quota | required for continuous 24/7 usage |
 | `jq` | optional, parse JSON cycle logs |
 | `gh` | optional, GitHub CLI |
 | `wrangler` | optional, Cloudflare CLI |
@@ -208,7 +208,7 @@ This is an experimental project:
 
 - macOS-only right now (Linux/systemd not implemented yet)
 - still under test (usable but not guaranteed stable)
-- incurs cost (each cycle consumes Claude quota/budget)
+- incurs cost (each cycle consumes Codex/OpenAI quota/budget)
 - fully autonomous operation (review `CLAUDE.md` safety guardrails carefully)
 - no warranty (it may build unexpected things; check `docs/` and `projects/` regularly)
 
