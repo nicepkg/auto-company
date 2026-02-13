@@ -1,0 +1,11 @@
+check_id,gate,scenario,expected,result,status,evidence
+G1-POS-001,citation,Run draft on pilot flow with valid sources,"draft exits 0 and all_answers_have_citations=true",exit_code=0,PASS,projects/security-questionnaire-autopilot/runs/pilot1-live-2026-02-13/draft_answers.json
+G1-NEG-001,citation,Run draft with unrelated source,"draft exits non-zero and uncited_question_ids populated",exit_code=1,PASS,projects/security-questionnaire-autopilot/runs/pilot1-citation-neg-2026-02-13/draft_answers.json
+G2-NEG-001,human_approval,Attempt export before approval,"export exits non-zero",exit_code=1,PASS,cli error Expected file not found approval.json
+G2-POS-001,human_approval,Approve all questions then export,"export exits 0 and manifest shows human_approved=true",exit_code=0,PASS,projects/security-questionnaire-autopilot/runs/pilot1-live-2026-02-13/export_package/manifest.json
+G3-POS-001,pricing_margin,Validate floor deal with healthy cogs,"approved=true and no issues",approved=true,PASS,docs/qa/cycle-003-pilot1-pricing-pass.json
+G3-NEG-001,pricing_margin,Validate below-floor deal,"approved=false and issues include floor violations",exit_code=1,PASS,docs/qa/cycle-003-pilot1-pricing-fail.json
+HOSTED-POS-001,hosted_path,Hosted API smoke run end-to-end,"ingest->draft->approve->export returns ok=true",ok=true,PASS,projects/security-questionnaire-autopilot/runs/pilot-hosted-smoke-20260213-120836/export_package/manifest.json
+HOSTED-G1-NEG-001,hosted_citation,Hosted draft with unrelated source,"draft route returns ok=false and uncited IDs",ok=false,PASS,docs/qa/cycle-003-hosted-citation-gate-fail.json
+HOSTED-G2-NEG-001,hosted_approval,Hosted export before approval,"export route blocks with approval gate error",ok=false,PASS,docs/qa/cycle-003-hosted-approval-gate-fail.json
+HOSTED-G3-NEG-001,hosted_pricing,Hosted below-floor pricing,"validate-pilot-deal returns approved=false",ok=false,PASS,docs/qa/cycle-003-hosted-pricing-gate-fail.json

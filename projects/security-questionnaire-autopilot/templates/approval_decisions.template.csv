@@ -1,0 +1,4 @@
+question_id,decision,notes
+Q-001,approve,Verified against policy section 2.1
+Q-002,approve,Matches patch SLA documented in policy
+Q-003,approve,Incident response evidence confirmed

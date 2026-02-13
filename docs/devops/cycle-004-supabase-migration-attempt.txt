@@ -1,0 +1,9 @@
+timestamp=2026-02-13 12:16:19 PST
+run_id=pilot-001-customer-originated-20260213-121619
+NEXT_PUBLIC_SUPABASE_URL=unset
+SUPABASE_SERVICE_ROLE_KEY=unset
+supabase_cli=missing
+psql_cli=missing
+attempted_migration_command=psql "$SUPABASE_DB_URL" -f supabase/migrations/20260213_cycle003_hosted_workflow.sql
+attempted_seed_command=psql "$SUPABASE_DB_URL" -f supabase/seed/pilot-001-floor-pricing.sql
+result=blocked_missing_credentials_or_cli

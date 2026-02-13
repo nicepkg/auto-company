@@ -1,0 +1,150 @@
+name: cycle-005-hosted-runtime-env-sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "Hosting provider to update"
+        type: choice
+        required: true
+        default: vercel
+        options:
+          - vercel
+          - cloudflare_pages
+      base_url:
+        description: "Optional BASE_URL to validate after redeploy (expects /api/workflow/env-health). If empty, best-effort discovery is attempted."
+        required: false
+        default: ""
+      poll_timeout_seconds:
+        description: "How long to wait for env-health to reflect the new env vars"
+        required: false
+        default: "240"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Preflight: required Supabase secrets (source of truth for hosting sync)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${NEXT_PUBLIC_SUPABASE_URL:-}" || (echo "Missing GitHub secret: NEXT_PUBLIC_SUPABASE_URL" >&2; exit 2)
+          test -n "${SUPABASE_SERVICE_ROLE_KEY:-}" || (echo "Missing GitHub secret: SUPABASE_SERVICE_ROLE_KEY" >&2; exit 2)
+
+      - name: Sync hosted runtime env vars + trigger redeploy/build (provider API)
+        env:
+          PROVIDER: ${{ inputs.provider }}
+          BASE_URL: ${{ inputs.base_url }}
+          POLL_TIMEOUT_SECONDS: ${{ inputs.poll_timeout_seconds }}
+          POLL_INTERVAL_SECONDS: "10"
+
+          # Supabase values to sync into hosted runtime:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+          # Vercel config:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          VERCEL_PROJECT: ${{ vars.VERCEL_PROJECT }}
+          VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
+          VERCEL_TEAM_SLUG: ${{ vars.VERCEL_TEAM_SLUG }}
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+          VERCEL_ENV_TARGETS: "production,preview"
+
+          # Cloudflare Pages config:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CF_PAGES_PROJECT: ${{ vars.CF_PAGES_PROJECT }}
+          CF_PAGES_BUILD_HOOK_URL: ${{ secrets.CF_PAGES_BUILD_HOOK_URL }}
+
+          # Optional BASE_URL discovery sources (same precedence as Cycle 005 evidence workflow):
+          HOSTED_WORKFLOW_BASE_URL_CANDIDATES: ${{ vars.HOSTED_WORKFLOW_BASE_URL_CANDIDATES }}
+          CYCLE_005_BASE_URL_CANDIDATES: ${{ vars.CYCLE_005_BASE_URL_CANDIDATES }}
+          HOSTED_BASE_URL_CANDIDATES: ${{ vars.HOSTED_BASE_URL_CANDIDATES }}
+          WORKFLOW_APP_BASE_URL_CANDIDATES: ${{ vars.WORKFLOW_APP_BASE_URL_CANDIDATES }}
+        run: |
+          set -euo pipefail
+
+          provider="${PROVIDER:-}"
+          base="${BASE_URL:-}"
+
+          if [ -z "$base" ]; then
+            candidates=""
+            if [ -n "${HOSTED_WORKFLOW_BASE_URL_CANDIDATES:-}" ]; then
+              candidates="${HOSTED_WORKFLOW_BASE_URL_CANDIDATES}"
+            elif [ -n "${CYCLE_005_BASE_URL_CANDIDATES:-}" ]; then
+              candidates="${CYCLE_005_BASE_URL_CANDIDATES}"
+            elif [ -n "${HOSTED_BASE_URL_CANDIDATES:-}" ]; then
+              candidates="${HOSTED_BASE_URL_CANDIDATES}"
+            elif [ -n "${WORKFLOW_APP_BASE_URL_CANDIDATES:-}" ]; then
+              candidates="${WORKFLOW_APP_BASE_URL_CANDIDATES}"
+            else
+              candidates="$(
+                ./projects/security-questionnaire-autopilot/scripts/collect-base-url-candidates-from-hosting.sh \
+                  | tr '\n' ' ' | tr -s ' ' | sed 's/^ *//; s/ *$//' || true
+              )"
+            fi
+
+            if [ -n "${candidates:-}" ]; then
+              export BASE_URL_CANDIDATES="${candidates}"
+              export ALLOW_MISSING_SUPABASE_ENV=1
+              base="$(./projects/security-questionnaire-autopilot/scripts/discover-hosted-base-url.sh)"
+            fi
+          fi
+
+          case "$provider" in
+            vercel)
+              test -n "${VERCEL_TOKEN:-}" || (echo "Missing secret: VERCEL_TOKEN" >&2; exit 2)
+              test -n "${VERCEL_PROJECT_ID:-${VERCEL_PROJECT:-}}" || (echo "Missing repo var: VERCEL_PROJECT_ID or VERCEL_PROJECT" >&2; exit 2)
+              test -n "${base:-}" || (echo "Missing BASE_URL. Provide inputs.base_url or set HOSTED_WORKFLOW_BASE_URL_CANDIDATES (or configure hosting discovery)." >&2; exit 2)
+              ENV_HEALTH_TIMEOUT_SECS="${POLL_TIMEOUT_SECONDS}" \
+                ./projects/security-questionnaire-autopilot/scripts/vercel-sync-supabase-env.sh "$base"
+              ;;
+            cloudflare_pages)
+              test -n "${CLOUDFLARE_API_TOKEN:-}" || (echo "Missing secret: CLOUDFLARE_API_TOKEN" >&2; exit 2)
+              test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || (echo "Missing repo var: CLOUDFLARE_ACCOUNT_ID" >&2; exit 2)
+              test -n "${CF_PAGES_PROJECT:-}" || (echo "Missing repo var: CF_PAGES_PROJECT" >&2; exit 2)
+
+              ./projects/security-questionnaire-autopilot/scripts/cloudflare-pages-upsert-project-env-vars.sh
+
+              if [ -n "${CF_PAGES_BUILD_HOOK_URL:-}" ]; then
+                # Avoid echoing the hook URL.
+                curl -sS -m 30 -X POST "${CF_PAGES_BUILD_HOOK_URL}" >/dev/null
+              else
+                echo "CF_PAGES_BUILD_HOOK_URL not set; env vars updated but redeploy must be triggered manually." >&2
+              fi
+
+              if [ -n "${base:-}" ] && command -v jq >/dev/null 2>&1; then
+                deadline="$(( $(date +%s) + POLL_TIMEOUT_SECONDS ))"
+                out="$(mktemp)"
+                while :; do
+                  now="$(date +%s)"
+                  if [ "$now" -ge "$deadline" ]; then
+                    echo "Timed out waiting for env-health to reflect updated env vars." >&2
+                    rm -f "$out" 2>/dev/null || true
+                    exit 2
+                  fi
+                  code="$(curl -sS -m 12 -o "$out" -w "%{http_code}" "${base%/}/api/workflow/env-health" || echo "000")"
+                  if [ "$code" = "200" ] && jq -e '.ok == true' "$out" >/dev/null 2>&1; then
+                    has_env="$(jq -r '.env.NEXT_PUBLIC_SUPABASE_URL == true and .env.SUPABASE_SERVICE_ROLE_KEY == true' "$out" 2>/dev/null || echo "false")"
+                    if [ "$has_env" = "true" ]; then
+                      rm -f "$out" 2>/dev/null || true
+                      exit 0
+                    fi
+                  fi
+                  sleep "${POLL_INTERVAL_SECONDS}"
+                done
+              fi
+              ;;
+            *)
+              echo "Unknown provider: ${provider}" >&2
+              exit 2
+              ;;
+          esac

@@ -1,0 +1,32 @@
+{
+  "name": "security-questionnaire-autopilot-hosted",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "supabase:bundle": "node scripts/build-dashboard-sql-bundle.mjs --migration supabase/migrations/20260213_cycle003_hosted_workflow.sql --seed supabase/seed/pilot-001-floor-pricing.sql --out supabase/bundles/20260213_cycle003_hosted_workflow_migration_plus_seed.sql"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "next": "^14.2.30",
+    "pg": "^8.16.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/react": "^18.3.19",
+    "@types/react-dom": "^18.3.5",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.30",
+    "typescript": "^5.8.2",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20.11.1"
+  }
+}

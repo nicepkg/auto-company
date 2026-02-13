@@ -2,7 +2,7 @@
 # ============================================================
 # Auto Company — 24/7 Autonomous Loop
 # ============================================================
-# Keeps Claude Code running continuously to drive the AI team.
+# Keeps Codex CLI running continuously to drive the AI team.
 # Uses fresh sessions with consensus.md as the relay baton.
 #
 # Usage:
@@ -14,7 +14,7 @@
 #   kill $(cat .auto-loop.pid)  # Force stop
 #
 # Config (env vars):
-#   MODEL=opus                # Claude model (default: opus)
+#   MODEL=gpt-5-codex         # Codex model (default: gpt-5-codex)
 #   LOOP_INTERVAL=30            # Seconds between cycles (default: 30)
 #   CYCLE_TIMEOUT_SECONDS=1800  # Max seconds per cycle before force-kill
 #   MAX_CONSECUTIVE_ERRORS=5    # Circuit breaker threshold
@@ -36,16 +36,13 @@ PID_FILE="$PROJECT_DIR/.auto-loop.pid"
 STATE_FILE="$PROJECT_DIR/.auto-loop-state"
 
 # Loop settings (all overridable via env vars)
-MODEL="${MODEL:-opus}"
+MODEL="${MODEL:-gpt-5-codex}"
 LOOP_INTERVAL="${LOOP_INTERVAL:-30}"
 CYCLE_TIMEOUT_SECONDS="${CYCLE_TIMEOUT_SECONDS:-1800}"
 MAX_CONSECUTIVE_ERRORS="${MAX_CONSECUTIVE_ERRORS:-5}"
 COOLDOWN_SECONDS="${COOLDOWN_SECONDS:-300}"
 LIMIT_WAIT_SECONDS="${LIMIT_WAIT_SECONDS:-3600}"
 MAX_LOGS="${MAX_LOGS:-200}"
-
-# Ensure Agent Teams is available
-export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 
 # === Functions ===
 
@@ -73,7 +70,7 @@ log_cycle() {
 
 check_usage_limit() {
     local output="$1"
-    if echo "$output" | grep -qi "usage limit\|rate limit\|too many requests\|resource_exhausted\|overloaded"; then
+    if echo "$output" | grep -qi "usage limit\|rate limit\|too many requests\|resource_exhausted\|overloaded\|quota"; then
         return 0
     fi
     return 1
@@ -152,34 +149,42 @@ validate_consensus() {
     return 0
 }
 
-run_claude_cycle() {
+run_codex_cycle() {
     local prompt="$1"
-    local output_file timeout_flag
+    local output_file timeout_flag last_message_file
+    local -a cmd
 
     output_file=$(mktemp)
     timeout_flag=$(mktemp)
+    last_message_file=$(mktemp)
 
     set +e
     (
-        cd "$PROJECT_DIR" && claude -p "$prompt" \
-            --model "$MODEL" \
-            --dangerously-skip-permissions \
-            --output-format json
+        cd "$PROJECT_DIR"
+        cmd=(codex exec "$prompt" \
+            --json \
+            --skip-git-repo-check \
+            --dangerously-bypass-approvals-and-sandbox \
+            -o "$last_message_file")
+        if [ -n "$MODEL" ]; then
+            cmd+=(--model "$MODEL")
+        fi
+        "${cmd[@]}"
     ) > "$output_file" 2>&1 &
-    local claude_pid=$!
+    local codex_pid=$!
 
     (
         sleep "$CYCLE_TIMEOUT_SECONDS"
-        if kill -0 "$claude_pid" 2>/dev/null; then
+        if kill -0 "$codex_pid" 2>/dev/null; then
             echo "1" > "$timeout_flag"
-            kill -TERM "$claude_pid" 2>/dev/null || true
+            kill -TERM "$codex_pid" 2>/dev/null || true
             sleep 5
-            kill -KILL "$claude_pid" 2>/dev/null || true
+            kill -KILL "$codex_pid" 2>/dev/null || true
         fi
     ) &
     local watchdog_pid=$!
 
-    wait "$claude_pid"
+    wait "$codex_pid"
     EXIT_CODE=$?
 
     kill "$watchdog_pid" 2>/dev/null || true
@@ -187,7 +192,9 @@ run_claude_cycle() {
     set -e
 
     OUTPUT=$(cat "$output_file")
+    OUTPUT_LAST_MESSAGE=$(cat "$last_message_file" 2>/dev/null || true)
     rm -f "$output_file"
+    rm -f "$last_message_file"
 
     if [ -s "$timeout_flag" ]; then
         CYCLE_TIMED_OUT=1
@@ -199,21 +206,32 @@ run_claude_cycle() {
 }
 
 extract_cycle_metadata() {
-    RESULT_TEXT=""
+    RESULT_TEXT="${OUTPUT_LAST_MESSAGE:-}"
     CYCLE_COST=""
-    CYCLE_SUBTYPE=""
-    CYCLE_TYPE=""
+    CYCLE_SUBTYPE="success"
+    CYCLE_TYPE="codex.exec"
+    CYCLE_INPUT_TOKENS=""
+    CYCLE_OUTPUT_TOKENS=""
+    CYCLE_CACHED_INPUT_TOKENS=""
 
     if command -v jq &>/dev/null; then
-        RESULT_TEXT=$(echo "$OUTPUT" | jq -r '.result // empty' 2>/dev/null | head -c 2000 || true)
-        CYCLE_COST=$(echo "$OUTPUT" | jq -r '.total_cost_usd // empty' 2>/dev/null || true)
-        CYCLE_SUBTYPE=$(echo "$OUTPUT" | jq -r '.subtype // empty' 2>/dev/null || true)
-        CYCLE_TYPE=$(echo "$OUTPUT" | jq -r '.type // empty' 2>/dev/null || true)
+        if [ -z "$RESULT_TEXT" ]; then
+            RESULT_TEXT=$(echo "$OUTPUT" | jq -Rr 'fromjson? | select(.type=="item.completed" and .item.type=="agent_message") | .item.text // empty' | tail -1 | head -c 2000 || true)
+        fi
+        CYCLE_INPUT_TOKENS=$(echo "$OUTPUT" | jq -Rr 'fromjson? | select(.type=="turn.completed") | .usage.input_tokens // empty' | tail -1 || true)
+        CYCLE_OUTPUT_TOKENS=$(echo "$OUTPUT" | jq -Rr 'fromjson? | select(.type=="turn.completed") | .usage.output_tokens // empty' | tail -1 || true)
+        CYCLE_CACHED_INPUT_TOKENS=$(echo "$OUTPUT" | jq -Rr 'fromjson? | select(.type=="turn.completed") | .usage.cached_input_tokens // empty' | tail -1 || true)
+        CYCLE_COST=$(echo "$OUTPUT" | jq -Rr 'fromjson? | select(.type=="turn.completed") | .usage.total_cost_usd // empty' | tail -1 || true)
+        if echo "$OUTPUT" | jq -Rr 'fromjson? | select(.type=="error") | .type' | head -1 | grep -q "error"; then
+            CYCLE_SUBTYPE="error"
+        fi
     else
-        RESULT_TEXT=$(echo "$OUTPUT" | head -c 2000 || true)
-        CYCLE_COST=$(echo "$OUTPUT" | sed -n 's/.*"total_cost_usd":\([0-9.]*\).*/\1/p' | head -1 || true)
-        CYCLE_SUBTYPE=$(echo "$OUTPUT" | sed -n 's/.*"subtype":"\([^"]*\)".*/\1/p' | head -1 || true)
-        CYCLE_TYPE=$(echo "$OUTPUT" | sed -n 's/.*"type":"\([^"]*\)".*/\1/p' | head -1 || true)
+        if [ -z "$RESULT_TEXT" ]; then
+            RESULT_TEXT=$(echo "$OUTPUT" | tail -c 2000 || true)
+        fi
+        if echo "$OUTPUT" | grep -q '"type":"error"'; then
+            CYCLE_SUBTYPE="error"
+        fi
     fi
 }
 
@@ -234,8 +252,8 @@ if [ -f "$PID_FILE" ]; then
 fi
 
 # Check dependencies
-if ! command -v claude &>/dev/null; then
-    echo "Error: 'claude' CLI not found in PATH. Install Claude Code first."
+if ! command -v codex &>/dev/null; then
+    echo "Error: 'codex' CLI not found in PATH. Install Codex CLI first."
     exit 1
 fi
 
@@ -294,8 +312,8 @@ $CONSENSUS
 
 This is Cycle #$loop_count. Act decisively."
 
-    # Run Claude Code in headless mode with per-cycle timeout
-    run_claude_cycle "$FULL_PROMPT"
+    # Run Codex in headless mode with per-cycle timeout
+    run_codex_cycle "$FULL_PROMPT"
 
     # Save full output to cycle log
     echo "$OUTPUT" > "$cycle_log"
@@ -315,7 +333,14 @@ This is Cycle #$loop_count. Act decisively."
     fi
 
     if [ -z "$cycle_failed_reason" ]; then
-        log_cycle $loop_count "OK" "Completed (cost: \$${CYCLE_COST:-unknown}, subtype: ${CYCLE_SUBTYPE:-unknown})"
+        token_msg=""
+        if [ -n "$CYCLE_INPUT_TOKENS" ] || [ -n "$CYCLE_OUTPUT_TOKENS" ]; then
+            token_msg=", tokens in/out: ${CYCLE_INPUT_TOKENS:-?}/${CYCLE_OUTPUT_TOKENS:-?}"
+            if [ -n "$CYCLE_CACHED_INPUT_TOKENS" ]; then
+                token_msg="${token_msg}, cached in: ${CYCLE_CACHED_INPUT_TOKENS}"
+            fi
+        fi
+        log_cycle $loop_count "OK" "Completed (cost: \$${CYCLE_COST:-unknown}, subtype: ${CYCLE_SUBTYPE:-unknown}${token_msg})"
         if [ -n "$RESULT_TEXT" ]; then
             log_cycle $loop_count "SUMMARY" "$(echo "$RESULT_TEXT" | head -c 300)"
         fi
