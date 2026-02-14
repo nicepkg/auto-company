@@ -36,5 +36,12 @@ jobs:
           set -euo pipefail
           test -n "${SUPABASE_DB_URL:-}" || (echo "Missing secret: SUPABASE_DB_URL" >&2; exit 2)
           test -f "${{ github.workspace }}/${{ inputs.sql_bundle }}" || (echo "Bundle not found: ${{ inputs.sql_bundle }}" >&2; exit 2)
-          node scripts/apply-supabase-sql.mjs "${{ github.workspace }}/${{ inputs.sql_bundle }}"
+          ./scripts/apply-supabase-bundle.sh "${{ github.workspace }}/${{ inputs.sql_bundle }}"
 
+      - name: Upload verification artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cycle-005-supabase-apply
+          if-no-files-found: error
+          path: |
+            projects/security-questionnaire-autopilot/runs/supabase-verify.json

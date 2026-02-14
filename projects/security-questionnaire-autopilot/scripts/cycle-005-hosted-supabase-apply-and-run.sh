@@ -93,23 +93,36 @@ if [ -n "$SKIP_APPLY" ] && [ "$SKIP_APPLY" != "0" ]; then
   echo "[1/8] skipping migration + seed apply (SKIP_SUPABASE_SQL_APPLY is set)"
 else
   if [ -z "${SUPABASE_DB_URL:-}" ]; then
-    echo "Missing env var: SUPABASE_DB_URL" >&2
-    echo "" >&2
-    echo "To proceed, choose ONE:" >&2
-    echo "  1) Apply the bundle via Supabase Dashboard SQL Editor, then rerun with:" >&2
-    echo "     export SKIP_SUPABASE_SQL_APPLY=1" >&2
-    echo "  2) Provide a direct Postgres connection string and rerun with:" >&2
-    echo "     export SUPABASE_DB_URL='postgresql://postgres:...@db.<project-ref>.supabase.co:5432/postgres'" >&2
-    exit 2
+    if [ -n "${SUPABASE_PROJECT_REF:-}" ] && [ -n "${SUPABASE_DB_PASSWORD:-}" ]; then
+      echo "[1/8] building SUPABASE_DB_URL from SUPABASE_PROJECT_REF + SUPABASE_DB_PASSWORD (no secret printing)"
+      export SUPABASE_DB_URL="$(
+        SUPABASE_PROJECT_REF="$SUPABASE_PROJECT_REF" \
+        SUPABASE_DB_PASSWORD="$SUPABASE_DB_PASSWORD" \
+        "$PROJECT/scripts/supabase-build-db-url.sh" --stdout
+      )"
+    else
+      echo "Missing env var: SUPABASE_DB_URL" >&2
+      echo "" >&2
+      echo "To proceed, choose ONE:" >&2
+      echo "  1) Apply the bundle via Supabase Dashboard SQL Editor, then rerun with:" >&2
+      echo "     export SKIP_SUPABASE_SQL_APPLY=1" >&2
+      echo "  2) Provide a direct Postgres connection string and rerun with:" >&2
+      echo "     export SUPABASE_DB_URL='postgresql://postgres:...@db.<project-ref>.supabase.co:5432/postgres'" >&2
+      echo "  3) Provide project ref + DB password and rerun with:" >&2
+      echo "     export SUPABASE_PROJECT_REF='<project-ref>'" >&2
+      echo "     export SUPABASE_DB_PASSWORD='***'" >&2
+      exit 2
+    fi
   fi
-	echo "[1/8] apply migration + seed to Supabase (via node + pg)"
-	# Prefer applying the bundle so the DB apply path matches the Dashboard SQL Editor path.
-	if [ -f "$BUNDLE_SQL" ]; then
-	  node scripts/verify-dashboard-sql-bundle.mjs --bundle "$BUNDLE_SQL" >/dev/null
-	  node scripts/apply-supabase-sql.mjs "$BUNDLE_SQL"
-	else
-	  node scripts/apply-supabase-sql.mjs "$MIGRATION_SQL" "$SEED_SQL"
-	fi
+
+  echo "[1/8] apply migration + seed to Supabase (via node + pg)"
+  # Prefer applying the bundle so the DB apply path matches the Dashboard SQL Editor path.
+  if [ -f "$BUNDLE_SQL" ]; then
+    node scripts/verify-dashboard-sql-bundle.mjs --bundle "$BUNDLE_SQL" >/dev/null
+    node scripts/apply-supabase-sql.mjs "$BUNDLE_SQL"
+  else
+    node scripts/apply-supabase-sql.mjs "$MIGRATION_SQL" "$SEED_SQL"
+  fi
 fi
 
 echo "[2/8] hosted supabase persistence health check (env + schema + seed)"
