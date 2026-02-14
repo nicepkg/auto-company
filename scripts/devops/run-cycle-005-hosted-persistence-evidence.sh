@@ -23,6 +23,7 @@ Usage:
 Flags:
   --repo OWNER/REPO            (default: inferred from git remote via gh)
   --ref REF                    Git ref to run workflow from (branch, tag, or SHA). Use when the workflow exists on a non-default branch.
+  --local-runtime              Credential-free fallback: dispatch with local_runtime=true (ephemeral Next.js runtime inside the GHA job). Intended for env-health wiring when no hosted BASE_URL exists yet.
   --candidates "u1 u2 ..."     Set/override HOSTED_WORKFLOW_BASE_URL_CANDIDATES for this run (also sets repo variable if --set-variable)
   --candidates-file PATH       Read candidates from file (one per line; comments allowed)
   --set-variable               Write candidates into repo variable HOSTED_WORKFLOW_BASE_URL_CANDIDATES
@@ -34,6 +35,9 @@ Flags:
                                Dispatch with preflight_only=true and enable_autorun_after_preflight=true (workflow sets CYCLE_005_AUTORUN_ENABLED=true only after a green preflight)
   --base-url "u1 u2 ..."       Pass candidates directly to workflow_dispatch input base_url (does not persist)
   --preflight-only             Dispatch with preflight_only=true (BASE_URL selection + env checks only; no evidence + no PR)
+  --preflight-require-supabase-health true|false
+                               When preflight_only=true and skip_sql_apply=true, controls whether the workflow enforces supabase-health.
+                               Default: true. Set false only to validate BASE_URL + env-health while Supabase is not yet provisioned.
   --autodiscover               If no candidates are provided and no repo variable exists, attempt best-effort discovery via GitHub Deployments metadata and hosting provider APIs
   --autodiscover-github        Best-effort discovery from GitHub Deployments metadata (via gh api)
   --autodiscover-hosting       Best-effort discovery from hosting provider APIs (Vercel/Cloudflare) using local env vars
@@ -62,6 +66,8 @@ AUTORUN=""
 AUTORUN_AFTER_PREFLIGHT="0"
 BASE_URL_INPUT=""
 PREFLIGHT_ONLY="false"
+PREFLIGHT_REQUIRE_SUPABASE_HEALTH="true"
+LOCAL_RUNTIME="0"
 RUN_ID=""
 SKIP_SQL_APPLY="true"
 SQL_BUNDLE="projects/security-questionnaire-autopilot/supabase/bundles/20260213_cycle003_hosted_workflow_migration_plus_seed.sql"
@@ -76,6 +82,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --repo) REPO="${2:-}"; shift 2 ;;
     --ref) REF="${2:-}"; shift 2 ;;
+    --local-runtime) LOCAL_RUNTIME="1"; shift 1 ;;
     --candidates) CANDIDATES="${2:-}"; shift 2 ;;
     --candidates-file) CANDIDATES_FILE="${2:-}"; shift 2 ;;
     --set-variable) SET_VARIABLE="1"; shift 1 ;;
@@ -86,6 +93,7 @@ while [ "$#" -gt 0 ]; do
     --enable-autorun-after-preflight) AUTORUN_AFTER_PREFLIGHT="1"; shift 1 ;;
     --base-url) BASE_URL_INPUT="${2:-}"; shift 2 ;;
     --preflight-only) PREFLIGHT_ONLY="true"; shift 1 ;;
+    --preflight-require-supabase-health) PREFLIGHT_REQUIRE_SUPABASE_HEALTH="${2:-}"; shift 2 ;;
     --autodiscover) AUTO_DISCOVER_GITHUB="1"; AUTO_DISCOVER_HOSTING="1"; shift 1 ;;
     --autodiscover-github) AUTO_DISCOVER_GITHUB="1"; shift 1 ;;
     --autodiscover-hosting) AUTO_DISCOVER_HOSTING="1"; shift 1 ;;
@@ -109,6 +117,15 @@ require_bin() {
 }
 
 require_bin "gh"
+
+if [ "${LOCAL_RUNTIME}" = "1" ]; then
+  # local_runtime mode is for repos with no externally hosted BASE_URL yet.
+  # Keep this mode explicit: preflight is meaningful, but supabase-health isn't.
+  LOCAL_PROBE="0"
+  LOCAL_SMOKE="0"
+  PREFLIGHT_ONLY="true"
+  PREFLIGHT_REQUIRE_SUPABASE_HEALTH="false"
+fi
 
 normalize_origin() {
   local u="$1"
@@ -463,7 +480,7 @@ if [ "${SET_VARIABLE}" = "1" ] && [ -z "${CANDIDATES:-}" ] && [ -n "${DISCOVERED
   echo "Set repo variable HOSTED_WORKFLOW_BASE_URL_CANDIDATES from autodiscovery." >&2
 fi
 
-if [ -z "${BASE_URL_FIELD:-}" ]; then
+if [ "${LOCAL_RUNTIME}" != "1" ] && [ -z "${BASE_URL_FIELD:-}" ]; then
   if [ "${SET_VARIABLE}" = "1" ] && [ -z "${CANDIDATES:-}" ] && [ "${AUTO_DISCOVER_GITHUB}" != "1" ] && [ "${AUTO_DISCOVER_HOSTING}" != "1" ]; then
     echo "--set-variable requires --candidates/--candidates-file, or use --autodiscover/--autodiscover-github/--autodiscover-hosting." >&2
     exit 2
@@ -589,6 +606,7 @@ fi
 require_fallback="$([ "${REQUIRE_FALLBACK_SECRETS}" = "1" ] && echo true || echo false)"
 start_ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 enable_autorun_after_preflight="$([ "${AUTORUN_AFTER_PREFLIGHT}" = "1" ] && echo true || echo false)"
+local_runtime="$([ "${LOCAL_RUNTIME}" = "1" ] && echo true || echo false)"
 
 tmp_wf="$(mktemp)"
 ref_args=()
@@ -597,12 +615,14 @@ if [ -n "${REF:-}" ]; then
 fi
 if ! gh workflow run cycle-005-hosted-persistence-evidence.yml -R "$REPO" \
   "${ref_args[@]}" \
+  -f local_runtime="${local_runtime}" \
   -f persist_base_url_candidates="${PERSIST_CANDIDATES}" \
   -f base_url="${BASE_URL_FIELD}" \
   -f preflight_only="${PREFLIGHT_ONLY}" \
   -f enable_autorun_after_preflight="${enable_autorun_after_preflight}" \
   -f run_id="${RUN_ID}" \
   -f skip_sql_apply="${SKIP_SQL_APPLY}" \
+  -f preflight_require_supabase_health="${PREFLIGHT_REQUIRE_SUPABASE_HEALTH}" \
   -f sql_bundle="${SQL_BUNDLE}" \
   -f require_fallback_supabase_secrets="${require_fallback}" >"$tmp_wf" 2>&1; then
   cat "$tmp_wf" >&2 || true
