@@ -631,7 +631,7 @@ jobs:
           exit 0
 
       - name: Setup Node
-        if: ${{ steps.basecands.outputs.has_candidates == 'true' }}
+        if: ${{ steps.basecands.outputs.has_candidates == 'true' && env.INPUT_PREFLIGHT_ONLY != 'true' }}
         uses: actions/setup-node@v4
         with:
           node-version-file: "projects/security-questionnaire-autopilot/.nvmrc"
@@ -641,7 +641,7 @@ jobs:
       - name: "Preflight: verify SQL bundle is internally consistent (drift guard)"
         env:
           SQL_BUNDLE: ${{ env.INPUT_SQL_BUNDLE }}
-        if: ${{ steps.basecands.outputs.has_candidates == 'true' }}
+        if: ${{ steps.basecands.outputs.has_candidates == 'true' && env.INPUT_PREFLIGHT_ONLY != 'true' }}
         run: |
           set -euo pipefail
 
@@ -651,12 +651,12 @@ jobs:
           node scripts/verify-dashboard-sql-bundle.mjs --bundle "${GITHUB_WORKSPACE}/${SQL_BUNDLE}" >/dev/null
 
       - name: Install deps (hosted app)
-        if: ${{ steps.basecands.outputs.has_candidates == 'true' }}
+        if: ${{ steps.basecands.outputs.has_candidates == 'true' && env.INPUT_PREFLIGHT_ONLY != 'true' }}
         working-directory: projects/security-questionnaire-autopilot
         run: npm ci
 
       - name: "Preflight: required secrets (clear error messages)"
-        if: ${{ steps.basecands.outputs.has_candidates == 'true' }}
+        if: ${{ steps.basecands.outputs.has_candidates == 'true' && env.INPUT_PREFLIGHT_ONLY != 'true' }}
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -675,7 +675,7 @@ jobs:
 
       - name: Run hosted workflow + collect DB evidence (Cycle 005 wrapper)
         id: wrapper
-        if: ${{ steps.basecands.outputs.has_candidates == 'true' }}
+        if: ${{ steps.basecands.outputs.has_candidates == 'true' && env.INPUT_PREFLIGHT_ONLY != 'true' }}
         env:
           BASE_URL: ${{ steps.baseurl.outputs.base_url }}
           INPUT_RUN_ID: ${{ env.INPUT_RUN_ID }}
@@ -711,7 +711,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: "Post-run smoke: runtime + db-evidence (fail-fast)"
-        if: ${{ steps.basecands.outputs.has_candidates == 'true' }}
+        if: ${{ steps.basecands.outputs.has_candidates == 'true' && env.INPUT_PREFLIGHT_ONLY != 'true' }}
         env:
           BASE_URL: ${{ steps.baseurl.outputs.base_url }}
           RUN_ID: ${{ steps.wrapper.outputs.run_id }}
@@ -724,7 +724,7 @@ jobs:
           jq -e '.ok == true' preflight/postrun/smoke-summary.json >/dev/null
 
       - name: Verify evidence was appended to sales ledger
-        if: ${{ steps.basecands.outputs.has_candidates == 'true' }}
+        if: ${{ steps.basecands.outputs.has_candidates == 'true' && env.INPUT_PREFLIGHT_ONLY != 'true' }}
         env:
           RUN_ID: ${{ steps.wrapper.outputs.run_id }}
           SALES_DOC: docs/sales/cycle-003-hosted-workflow-pilot-001-execution.md
@@ -746,7 +746,7 @@ jobs:
           test -f "$EVIDENCE" || (echo "Evidence JSON missing: $EVIDENCE (from $META)" >&2; exit 2)
 
       - name: Upload evidence artifacts
-        if: always()
+        if: ${{ always() && env.INPUT_PREFLIGHT_ONLY != 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: cycle-005-hosted-persistence-evidence
@@ -762,7 +762,7 @@ jobs:
             docs/sales/cycle-003-hosted-workflow-pilot-001-execution.md
 
       - name: Create PR with appended evidence entry
-        if: ${{ steps.basecands.outputs.has_candidates == 'true' && success() }}
+        if: ${{ steps.basecands.outputs.has_candidates == 'true' && success() && env.INPUT_PREFLIGHT_ONLY != 'true' }}
         uses: peter-evans/create-pull-request@v6
         with:
           title: "Cycle 005: hosted Supabase persistence evidence"
