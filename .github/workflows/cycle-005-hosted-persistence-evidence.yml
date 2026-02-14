@@ -633,7 +633,7 @@ jobs:
             preflight/supabase-health.json
 
       - name: Enable scheduled autorun gate after green preflight (optional; workflow_dispatch only)
-        if: ${{ github.event_name == 'workflow_dispatch' && steps.basecands.outputs.has_candidates == 'true' && env.INPUT_PREFLIGHT_ONLY && env.INPUT_ENABLE_AUTORUN_AFTER_PREFLIGHT }}
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.basecands.outputs.has_candidates == 'true' && env.INPUT_PREFLIGHT_ONLY == 'true' && env.INPUT_ENABLE_AUTORUN_AFTER_PREFLIGHT == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
