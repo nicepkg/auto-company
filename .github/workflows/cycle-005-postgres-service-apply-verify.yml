@@ -61,6 +61,16 @@ jobs:
           test -f "${{ github.workspace }}/${{ inputs.sql_bundle }}" || (echo "Bundle not found: ${{ inputs.sql_bundle }}" >&2; exit 2)
           ./scripts/apply-supabase-bundle.sh "${{ github.workspace }}/${{ inputs.sql_bundle }}"
 
+      - name: Record apply path marker (non-secret)
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p projects/security-questionnaire-autopilot/runs
+          {
+            echo "apply_path=postgres_service"
+            echo "note=Applied bundle to vanilla Postgres service container (no Supabase provisioning secrets)."
+          } > projects/security-questionnaire-autopilot/runs/cycle-005-apply-path.txt
+
       - name: Write safe supabase-verify.json if missing (always)
         if: always()
         env:
@@ -118,5 +128,5 @@ jobs:
           name: cycle-005-postgres-service-apply-verify
           if-no-files-found: warn
           path: |
+            projects/security-questionnaire-autopilot/runs/cycle-005-apply-path.txt
             projects/security-questionnaire-autopilot/runs/supabase-verify.json
-
