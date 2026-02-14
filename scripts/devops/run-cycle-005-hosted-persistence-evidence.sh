@@ -611,6 +611,12 @@ if ! gh workflow run cycle-005-hosted-persistence-evidence.yml -R "$REPO" \
     echo "Likely cause: workflow 'cycle-005-hosted-persistence-evidence.yml' does not exist on repo=${REPO} default branch/ref." >&2
     echo "Check: gh workflow list -R \"$REPO\"" >&2
     echo "Fix: run against the repo/ref that actually contains the workflow (or merge/push the workflow to the target repo)." >&2
+  elif grep -q "HTTP 422" "$tmp_wf" 2>/dev/null && grep -q "workflow_dispatch" "$tmp_wf" 2>/dev/null; then
+    echo "" >&2
+    echo "Likely cause: workflow exists but is not dispatchable from this repo/ref (missing workflow_dispatch on the default branch/ref)." >&2
+    echo "Fix options:" >&2
+    echo "  1) If the workflow exists on a non-default branch, re-run with: --ref <branch>" >&2
+    echo "  2) Or merge/push the workflow changes to the target repo default branch, then retry." >&2
   fi
   rm -f "$tmp_wf" 2>/dev/null || true
   exit 2
