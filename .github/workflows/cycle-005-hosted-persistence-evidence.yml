@@ -540,6 +540,70 @@ jobs:
             echo "- schema_actual: \`$actual\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: "Persist BASE_URL candidates from discovery (optional; workflow_dispatch only)"
+        # Self-healing loop: if the operator set persist_base_url_candidates=true but did NOT pass
+        # base_url/base_url_candidates explicitly, persist whatever discovery produced (after a green preflight).
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.basecands.outputs.has_candidates == 'true' && env.INPUT_PERSIST_BASE_URL_CANDIDATES == 'true' && env.INPUT_BASE_URL == '' && env.INPUT_BASE_URL_CANDIDATES == '' && env.INPUT_LOCAL_RUNTIME != 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p preflight
+
+          var_name="HOSTED_WORKFLOW_BASE_URL_CANDIDATES"
+          raw="$(cat preflight/base-url-candidates.txt 2>/dev/null || true)"
+          printf '%s\n' "$raw" > preflight/discovered-base-url-candidates.raw.txt
+
+          formatted="$(
+            ./projects/security-questionnaire-autopilot/scripts/format-base-url-candidates.sh \
+              preflight/discovered-base-url-candidates.raw.txt
+          )"
+          printf '%s\n' "$formatted" > preflight/discovered-base-url-candidates.formatted.txt
+
+          if [ -z "${formatted:-}" ]; then
+            echo "Refusing to persist empty ${var_name} from discovery output." >&2
+            exit 2
+          fi
+
+          payload="$(jq -nc --arg name "$var_name" --arg value "$formatted" '{name:$name,value:$value}')"
+
+          update_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/variables/${var_name}"
+          create_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/variables"
+
+          code="$(
+            curl -sS -o preflight/github-api.actions-variables.persist-discovery.patch.json -w "%{http_code}" \
+              -X PATCH \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$update_url" \
+              -d "$payload" || echo "000"
+          )"
+
+          if [ "$code" = "404" ]; then
+            code="$(
+              curl -sS -o preflight/github-api.actions-variables.persist-discovery.post.json -w "%{http_code}" \
+                -X POST \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "$create_url" \
+                -d "$payload" || echo "000"
+            )"
+          fi
+
+          if [ "$code" != "201" ] && [ "$code" != "204" ]; then
+            echo "Failed to upsert repo variable ${var_name} from discovery (HTTP $code)." >&2
+            exit 2
+          fi
+
+          {
+            echo ""
+            echo "- persisted_repo_variable: \`${var_name}\`"
+            echo "- persisted_candidates_source: \`discovery (preflight/base-url-candidates.txt)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload preflight artifacts (always)
         if: always()
         uses: actions/upload-artifact@v4
@@ -553,8 +617,12 @@ jobs:
             preflight/select-base-url.err
             preflight/input-base-url-candidates.raw.txt
             preflight/input-base-url-candidates.formatted.txt
+            preflight/discovered-base-url-candidates.raw.txt
+            preflight/discovered-base-url-candidates.formatted.txt
             preflight/github-api.actions-variables.patch.json
             preflight/github-api.actions-variables.post.json
+            preflight/github-api.actions-variables.persist-discovery.patch.json
+            preflight/github-api.actions-variables.persist-discovery.post.json
             preflight/github-api.actions-variables.autorun.patch.json
             preflight/github-api.actions-variables.autorun.post.json
             preflight/env-health.json
