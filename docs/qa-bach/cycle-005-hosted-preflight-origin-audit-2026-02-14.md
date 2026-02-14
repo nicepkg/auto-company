@@ -46,6 +46,9 @@ In the default preflight-only mode for `.github/workflows/cycle-005-hosted-persi
 6. Rerun preflight (expected green):
    - `make cycle-005-preflight`
 
+Self-discovery improvement (repo change on `qa-bach/local-runtime-preflight`):
+- If you dispatch the workflow with `persist_base_url_candidates=true` while leaving `base_url` empty, and discovery produces candidates, the workflow will now persist the discovered, formatted list into `HOSTED_WORKFLOW_BASE_URL_CANDIDATES` after a green preflight.
+
 ## Credential-Free Fallback (Within 1 Cycle)
 If you do not yet have hosting credentials/integration configured, you can still get a **green preflight for env-health wiring** by using an **ephemeral local runtime** inside GitHub Actions:
 
