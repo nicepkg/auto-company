@@ -1,6 +1,6 @@
 name: cycle-005-supabase-provision-apply-verify-dispatch
 
-on:
+'on':
   workflow_dispatch:
     inputs:
       supabase_project_name:
@@ -95,10 +95,10 @@ jobs:
 
           # Non-secret helper file for follow-up steps (configure hosted runtime env vars, etc).
           if [ -n "${SUPABASE_PROJECT_REF:-}" ]; then
-            cat > projects/security-questionnaire-autopilot/runs/supabase-connection-nonsecret.txt <<EOF
-project_ref=${SUPABASE_PROJECT_REF}
-NEXT_PUBLIC_SUPABASE_URL=https://${SUPABASE_PROJECT_REF}.supabase.co
-EOF
+            {
+              echo "project_ref=${SUPABASE_PROJECT_REF}"
+              echo "NEXT_PUBLIC_SUPABASE_URL=https://${SUPABASE_PROJECT_REF}.supabase.co"
+            } > projects/security-questionnaire-autopilot/runs/supabase-connection-nonsecret.txt
           fi
 
           # Copy runner-temp outputs into a stable, workspace-relative location for artifacts.
