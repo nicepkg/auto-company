@@ -1,4 +1,4 @@
-.PHONY: start start-awake awake stop status last cycles monitor pause resume install uninstall team cycle-005-evidence cycle-005-preflight cycle-005-preflight-enable-autorun cycle-005-env-sync help
+.PHONY: start start-awake awake stop status last cycles monitor pause resume install uninstall team cycle-005-evidence cycle-005-preflight cycle-005-preflight-enable-autorun cycle-005-env-sync cycle-005-fallback cycle-005-postgres-service-evidence help
 
 # === Quick Start ===
 
@@ -78,6 +78,12 @@ cycle-005-preflight-enable-autorun: ## Run preflight-only; if green, enable sche
 
 cycle-005-env-sync: ## Sync hosted runtime env vars (Supabase) via provider API + redeploy (requires gh write perms + repo vars/secrets)
 	./scripts/devops/run-cycle-005-hosted-runtime-env-sync.sh
+
+cycle-005-postgres-service-evidence: ## Cycle 005 fallback: apply+verify SQL bundle on vanilla Postgres service container (no Supabase provisioning secrets)
+	./scripts/qa/run-cycle-005-postgres-service-fallback-evidence.sh --repo junhengz/auto-company
+
+cycle-005-fallback: ## Secrets-free Cycle 005 evidence (static bundle verification; no DB required)
+	./scripts/devops/run-cycle-005-static-bundle-verify-evidence.sh
 
 # === Maintenance ===
 

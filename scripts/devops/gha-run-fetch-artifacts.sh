@@ -116,12 +116,14 @@ fi
 verify_dst="$EVID_DIR/supabase-verify-run-$RUN_ID.json"
 conn_dst="$EVID_DIR/supabase-connection-nonsecret-run-$RUN_ID.txt"
 prov_dst="$EVID_DIR/supabase-provision-summary-run-$RUN_ID.json"
+apply_path_dst="$EVID_DIR/cycle-005-apply-path-run-$RUN_ID.txt"
 
 # Artifact structure can vary (some uploads preserve workspace-relative paths; others flatten).
 # Prefer the canonical workspace-relative path, but fall back to a recursive search by filename.
 verify_src="$dl_dest/projects/security-questionnaire-autopilot/runs/supabase-verify.json"
 conn_src="$dl_dest/projects/security-questionnaire-autopilot/runs/supabase-connection-nonsecret.txt"
 prov_src="$dl_dest/projects/security-questionnaire-autopilot/runs/supabase-provision-summary.json"
+apply_path_src="$dl_dest/projects/security-questionnaire-autopilot/runs/cycle-005-apply-path.txt"
 
 if [ ! -f "$verify_src" ]; then
   verify_src="$(find "$dl_dest" -type f -name 'supabase-verify.json' -print -quit 2>/dev/null || true)"
@@ -132,11 +134,15 @@ fi
 if [ ! -f "$prov_src" ]; then
   prov_src="$(find "$dl_dest" -type f -name 'supabase-provision-summary.json' -print -quit 2>/dev/null || true)"
 fi
+if [ ! -f "$apply_path_src" ]; then
+  apply_path_src="$(find "$dl_dest" -type f -name 'cycle-005-apply-path.txt' -print -quit 2>/dev/null || true)"
+fi
 
 copied=()
 verify_present="false"
 conn_present="false"
 prov_present="false"
+apply_path_present="false"
 if [ -n "${verify_src:-}" ] && [ -f "$verify_src" ]; then
   cp "$verify_src" "$verify_dst"
   copied+=("$verify_dst")
@@ -151,6 +157,11 @@ if [ -n "${prov_src:-}" ] && [ -f "$prov_src" ]; then
   cp "$prov_src" "$prov_dst"
   copied+=("$prov_dst")
   prov_present="true"
+fi
+if [ -n "${apply_path_src:-}" ] && [ -f "$apply_path_src" ]; then
+  cp "$apply_path_src" "$apply_path_dst"
+  copied+=("$apply_path_dst")
+  apply_path_present="true"
 fi
 
 files_json="$(find "$dl_dest" -type f -maxdepth 6 -print 2>/dev/null | sed "s#^$dl_dest/##" | jq -R . | jq -s .)"
@@ -170,9 +181,12 @@ jq -n \
   --arg prov_src "$prov_src" \
   --arg prov_dst "$prov_dst" \
   --arg prov_present "$prov_present" \
+  --arg apply_path_src "$apply_path_src" \
+  --arg apply_path_dst "$apply_path_dst" \
+  --arg apply_path_present "$apply_path_present" \
   --argjson files "$files_json" \
   --argjson copied "$(printf '%s\n' "${copied[@]:-}" | jq -R . | jq -s .)" \
-  '{checked_at_utc:$checked_at_utc, repo:$repo, run_id:($run_id|tonumber), artifact:$artifact, dest:$dest, files:$files, extracted:{supabase_verify:{src:$verify_src, dst:$verify_dst, present:($verify_present=="true")}, connection_hints:{src:$conn_src, dst:$conn_dst, present:($conn_present=="true")}, provision_summary:{src:$prov_src, dst:$prov_dst, present:($prov_present=="true")}}, copied:$copied}' \
+  '{checked_at_utc:$checked_at_utc, repo:$repo, run_id:($run_id|tonumber), artifact:$artifact, dest:$dest, files:$files, extracted:{supabase_verify:{src:$verify_src, dst:$verify_dst, present:($verify_present=="true")}, connection_hints:{src:$conn_src, dst:$conn_dst, present:($conn_present=="true")}, provision_summary:{src:$prov_src, dst:$prov_dst, present:($prov_present=="true")}, apply_path:{src:$apply_path_src, dst:$apply_path_dst, present:($apply_path_present=="true")}}, copied:$copied}' \
   >"$OUT"
 
 if [ ! -f "$verify_dst" ]; then
