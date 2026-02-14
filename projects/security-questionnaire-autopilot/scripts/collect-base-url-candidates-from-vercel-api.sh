@@ -22,6 +22,7 @@ set -euo pipefail
 #   - GET /v9/projects/{idOrName}
 #   - GET /v9/projects/{idOrName}/domains
 #   - GET /v6/deployments?projectId=<id>
+#   - GET /v2/deployments/{deploymentId}/aliases   (best-effort; improves branch/preview URL coverage)
 
 STRICT="${STRICT:-0}"
 
@@ -30,6 +31,7 @@ VERCEL_PROJECT_ID="${VERCEL_PROJECT_ID:-}"
 VERCEL_PROJECT="${VERCEL_PROJECT:-}"
 VERCEL_TEAM_ID="${VERCEL_TEAM_ID:-}"
 VERCEL_TEAM_SLUG="${VERCEL_TEAM_SLUG:-}"
+VERCEL_DEPLOYMENTS_TARGETS="${VERCEL_DEPLOYMENTS_TARGETS:-}"
 
 if [ -z "${VERCEL_TOKEN}" ]; then
   exit 0
@@ -128,26 +130,85 @@ fi
 
 # Deployments under the project (useful for preview/production *.vercel.app URLs).
 limit="${VERCEL_DEPLOYMENTS_LIMIT:-10}"
-target="${VERCEL_DEPLOYMENTS_TARGET:-production}"
-
-deploy_qs="projectId=${project_id}&limit=${limit}&target=${target}"
-if [ -n "${VERCEL_TEAM_ID}" ]; then
-  deploy_qs="${deploy_qs}&teamId=${VERCEL_TEAM_ID}"
+target_single="${VERCEL_DEPLOYMENTS_TARGET:-}"
+targets="${VERCEL_DEPLOYMENTS_TARGETS:-}"
+if [ -n "${target_single:-}" ] && [ -z "${targets:-}" ]; then
+  targets="$target_single"
 fi
-if [ -n "${VERCEL_TEAM_SLUG}" ]; then
-  deploy_qs="${deploy_qs}&slug=${VERCEL_TEAM_SLUG}"
+if [ -z "${targets:-}" ]; then
+  targets="production,preview"
 fi
 
-deployments_json="$(
-  get_json "${api}/v6/deployments?${deploy_qs}" 2>/dev/null || true
-)"
-if echo "$deployments_json" | jq -e 'type=="object" and (.deployments? | type=="array")' >/dev/null 2>&1; then
+scan_alias_limit="${VERCEL_DEPLOYMENTS_ALIAS_SCAN_LIMIT:-6}"
+alias_scanned=0
+
+fetch_deploy_aliases() {
+  # Args: deployment_id (uid)
+  local did="$1"
+  local a_json
+  [ -n "${did:-}" ] || return 0
+
+  a_json="$(get_json "${api}/v2/deployments/${did}/aliases${qs}" 2>/dev/null || true)"
+  if ! echo "$a_json" | jq -e 'type=="object" and (.aliases? | type=="array")' >/dev/null 2>&1; then
+    return 0
+  fi
+
+  while IFS= read -r a; do
+    [ -n "$a" ] && add_candidate "$a"
+  done < <(echo "$a_json" | jq -r '.aliases[]? | (.alias? // .hostname? // .name? // .domain? // (if type=="string" then . else empty end) // empty)' 2>/dev/null || true)
+}
+
+IFS=',' read -r -a _targets <<<"$(printf '%s' "$targets" | tr -s ' ' | tr ' ' ',' )"
+for target in "${_targets[@]:-}"; do
+  target="$(printf '%s' "${target:-}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+  [ -n "${target:-}" ] || continue
+
+  deploy_qs="projectId=${project_id}&limit=${limit}&target=${target}"
+  if [ -n "${VERCEL_TEAM_ID}" ]; then
+    deploy_qs="${deploy_qs}&teamId=${VERCEL_TEAM_ID}"
+  fi
+  if [ -n "${VERCEL_TEAM_SLUG}" ]; then
+    deploy_qs="${deploy_qs}&slug=${VERCEL_TEAM_SLUG}"
+  fi
+
+  deployments_json="$(
+    get_json "${api}/v6/deployments?${deploy_qs}" 2>/dev/null || true
+  )"
+  if ! echo "$deployments_json" | jq -e 'type=="object" and (.deployments? | type=="array")' >/dev/null 2>&1; then
+    if [ "$STRICT" = "1" ]; then
+      echo "Vercel: failed to list deployments for target=${target}" >&2
+      echo "$deployments_json" >&2
+      exit 2
+    fi
+    continue
+  fi
+
+  # Add deployment URL + any inline aliases if present.
   while IFS= read -r u; do
     [ -n "$u" ] && add_candidate "$u"
-  done < <(echo "$deployments_json" | jq -r '.deployments[]?.url? // empty')
-fi
+  done < <(
+    echo "$deployments_json" | jq -r '
+      .deployments[]? |
+        (.url? // empty),
+        (.aliases[]? // empty),
+        (.alias[]? // empty)
+    ' 2>/dev/null || true
+  )
+
+  # Best-effort: fetch alias list for a small number of deployments to get branch URLs.
+  if [ "${scan_alias_limit:-0}" -gt 0 ] && [ "$alias_scanned" -lt "$scan_alias_limit" ]; then
+    remaining="$((scan_alias_limit - alias_scanned))"
+    while IFS= read -r did; do
+      [ -n "$did" ] || continue
+      fetch_deploy_aliases "$did"
+      alias_scanned=$((alias_scanned + 1))
+      if [ "$alias_scanned" -ge "$scan_alias_limit" ]; then
+        break
+      fi
+    done < <(echo "$deployments_json" | jq -r '.deployments[]? | (.uid? // .id? // empty)' 2>/dev/null | head -n "$remaining")
+  fi
+done
 
 for u in "${out[@]}"; do
   printf '%s\n' "$u"
 done
-

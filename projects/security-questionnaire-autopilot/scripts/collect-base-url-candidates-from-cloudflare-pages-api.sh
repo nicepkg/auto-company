@@ -18,12 +18,16 @@ set -euo pipefail
 # - Uses:
 #   - GET /client/v4/accounts/{account_id}/pages/projects/{project_name}
 #   - GET /client/v4/accounts/{account_id}/pages/projects/{project_name}/domains
+#   - GET /client/v4/accounts/{account_id}/pages/projects/{project_name}/deployments
 
 STRICT="${STRICT:-0}"
 
 CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
 CF_PAGES_PROJECT="${CF_PAGES_PROJECT:-}"
+CF_PAGES_BRANCH="${CF_PAGES_BRANCH:-${GITHUB_REF_NAME:-}}"
+CF_PAGES_DEPLOYMENTS_LIMIT="${CF_PAGES_DEPLOYMENTS_LIMIT:-20}"
+CF_PAGES_DEPLOYMENTS_ENVS="${CF_PAGES_DEPLOYMENTS_ENVS:-production,preview}"
 
 if [ -z "${CLOUDFLARE_API_TOKEN}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID}" ] || [ -z "${CF_PAGES_PROJECT}" ]; then
   exit 0
@@ -93,6 +97,22 @@ if [ -n "$subdomain" ]; then
   add_candidate "$subdomain"
 fi
 
+# Branch alias often exists for preview deployments: https://<branch>.<project>.pages.dev
+# This is a best-effort heuristic; env-health probing will still reject wrong origins.
+normalize_branch_for_pages() {
+  # Lowercase; replace non-alphanumeric with "-"; collapse repeats; trim "-".
+  local b="$1"
+  b="$(printf '%s' "$b" | tr '[:upper:]' '[:lower:]')"
+  b="$(printf '%s' "$b" | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
+  printf '%s' "$b"
+}
+if [ -n "${CF_PAGES_BRANCH:-}" ]; then
+  nb="$(normalize_branch_for_pages "$CF_PAGES_BRANCH")"
+  if [ -n "${nb:-}" ]; then
+    add_candidate "https://${nb}.${CF_PAGES_PROJECT}.pages.dev"
+  fi
+fi
+
 # Some responses include domains on the project itself.
 while IFS= read -r d; do
   [ -n "$d" ] && add_candidate "$d"
@@ -108,7 +128,43 @@ if echo "$domains_json" | jq -e 'type=="object" and (.success? == true) and (.re
   done < <(echo "$domains_json" | jq -r '.result[]? | (.name? // .domain? // .hostname? // empty)' 2>/dev/null || true)
 fi
 
+# Deployments endpoint: includes production/preview URLs + aliases (often branch + hash URLs).
+deployments_url="${api}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CF_PAGES_PROJECT}/deployments"
+if [ "${CF_PAGES_DEPLOYMENTS_LIMIT:-0}" -gt 0 ]; then
+  # Iterate envs to pull both production and preview recent deployments.
+  # The API supports env=production|preview (best-effort; tolerate shape drift).
+  IFS=',' read -r -a _envs <<<"$(printf '%s' "$CF_PAGES_DEPLOYMENTS_ENVS" | tr -s ' ' | tr ' ' ',' )"
+  for _env in "${_envs[@]:-}"; do
+    _env="$(printf '%s' "${_env:-}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+    [ -n "${_env:-}" ] || continue
+
+    qs="per_page=${CF_PAGES_DEPLOYMENTS_LIMIT}&env=${_env}"
+    dep_json="$(get_json "${deployments_url}?${qs}" 2>/dev/null || true)"
+    if ! echo "$dep_json" | jq -e 'type=="object" and (.success? == true) and (.result? | type=="array")' >/dev/null 2>&1; then
+      # Best-effort: skip on failure unless STRICT=1.
+      if [ "$STRICT" = "1" ]; then
+        echo "Cloudflare Pages: deployments list failed for env=${_env}" >&2
+        echo "$dep_json" >&2
+        exit 2
+      fi
+      continue
+    fi
+
+    # Prefer aliases when present; also attempt a couple common URL fields.
+    while IFS= read -r u; do
+      [ -n "$u" ] && add_candidate "$u"
+    done < <(
+      echo "$dep_json" | jq -r '
+        .result[]? |
+          (.aliases[]? // empty),
+          (.url? // empty),
+          (.deployment_url? // empty),
+          (.deploymentUrl? // empty)
+      ' 2>/dev/null || true
+    )
+  done
+fi
+
 for u in "${out[@]}"; do
   printf '%s\n' "$u"
 done
-
