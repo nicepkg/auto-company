@@ -280,6 +280,8 @@ format_candidates_field() {
   # We intentionally reuse the file-based formatter to keep semantics consistent.
   local raw="${1:-}"
   local tmp out
+  # Treat whitespace-only as empty.
+  raw="$(printf '%s' "${raw:-}" | tr '\n' ' ' | tr -s ' ' | sed 's/^ *//; s/ *$//')"
   [ -n "${raw:-}" ] || { printf '%s' ""; return 0; }
   tmp="$(mktemp)"
   printf '%s\n' "$raw" >"$tmp"
@@ -393,27 +395,37 @@ else
   fi
 fi
 
-if [ -z "${BASE_URL_FIELD:-}" ] && [ "${AUTO_DISCOVER_GITHUB}" = "1" ]; then
-  discovered="$(discover_candidates_from_github_deployments || true)"
-  discovered="$(format_candidates_field "${discovered:-}")"
+if [ -z "${BASE_URL_FIELD:-}" ] && { [ "${AUTO_DISCOVER_HOSTING}" = "1" ] || [ "${AUTO_DISCOVER_GITHUB}" = "1" ]; }; then
+  # Prefer provider APIs first (when configured) because they tend to be fresher and include aliases.
+  discovered_hosting=""
+  discovered_github=""
+
+  if [ "${AUTO_DISCOVER_HOSTING}" = "1" ]; then
+    if command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+      discovered_hosting="$("$COLLECT_HOSTING" | tr '\n' ' ' | tr -s ' ' | sed 's/^ *//; s/ *$//' || true)"
+      discovered_hosting="$(format_candidates_field "${discovered_hosting:-}")"
+    else
+      echo "Warning: --autodiscover-hosting requires curl + jq; skipping." >&2
+    fi
+  fi
+
+  if [ "${AUTO_DISCOVER_GITHUB}" = "1" ]; then
+    discovered_github="$(discover_candidates_from_github_deployments || true)"
+    discovered_github="$(format_candidates_field "${discovered_github:-}")"
+  fi
+
+  # Preserve provider-first ordering, then de-dupe.
+  discovered="$(format_candidates_field "${discovered_hosting:-} ${discovered_github:-}")"
   if [ -n "${discovered:-}" ]; then
     BASE_URL_FIELD="$discovered"
-    BASE_URL_SOURCE="GitHub Deployments discovery (gh api)"
-    DISCOVERED_CANDIDATES="$discovered"
-  fi
-fi
-
-if [ -z "${BASE_URL_FIELD:-}" ] && [ "${AUTO_DISCOVER_HOSTING}" = "1" ]; then
-  if command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
-    discovered="$("$COLLECT_HOSTING" | tr '\n' ' ' | tr -s ' ' | sed 's/^ *//; s/ *$//' || true)"
-    discovered="$(format_candidates_field "${discovered:-}")"
-    if [ -n "${discovered:-}" ]; then
-      BASE_URL_FIELD="$discovered"
+    if [ -n "${discovered_hosting:-}" ] && [ -n "${discovered_github:-}" ]; then
+      BASE_URL_SOURCE="hosting API discovery (local env) + GitHub Deployments discovery (gh api)"
+    elif [ -n "${discovered_hosting:-}" ]; then
       BASE_URL_SOURCE="hosting API discovery (local env)"
-      DISCOVERED_CANDIDATES="${DISCOVERED_CANDIDATES:-$discovered}"
+    else
+      BASE_URL_SOURCE="GitHub Deployments discovery (gh api)"
     fi
-  else
-    echo "Warning: --autodiscover-hosting requires curl + jq; skipping." >&2
+    DISCOVERED_CANDIDATES="$discovered"
   fi
 fi
 

@@ -156,10 +156,15 @@ if [ "${CF_PAGES_DEPLOYMENTS_LIMIT:-0}" -gt 0 ]; then
     done < <(
       echo "$dep_json" | jq -r '
         .result[]? |
-          (.aliases[]? // empty),
+          # API shape drifts; capture common alias field names.
+          (if (.aliases? | type)=="array" then (.aliases[]? // empty) elif (.aliases? | type)=="string" then (.aliases // empty) else empty end),
+          (if (.deployment_aliases? | type)=="array" then (.deployment_aliases[]? // empty) elif (.deployment_aliases? | type)=="string" then (.deployment_aliases // empty) else empty end),
+          (if (.deploymentAliases? | type)=="array" then (.deploymentAliases[]? // empty) elif (.deploymentAliases? | type)=="string" then (.deploymentAliases // empty) else empty end),
           (.url? // empty),
           (.deployment_url? // empty),
-          (.deploymentUrl? // empty)
+          (.deploymentUrl? // empty),
+          (.preview_url? // empty),
+          (.previewUrl? // empty)
       ' 2>/dev/null || true
     )
   done
