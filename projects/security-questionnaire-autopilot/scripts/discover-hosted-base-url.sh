@@ -95,7 +95,7 @@ normalize_url() {
     u="https://$u"
   fi
   # Strip path/query/fragment (keep scheme://host[:port])
-  u="$(printf '%s' "$u" | sed -E 's#^(https?://[^/]+).*$#\\1#')"
+  u="$(printf '%s' "$u" | sed -E 's#^(https?://[^/]+).*$#\1#')"
   # strip trailing slashes (defensive; should be none after origin strip)
   u="${u%/}"
   printf '%s' "$u"

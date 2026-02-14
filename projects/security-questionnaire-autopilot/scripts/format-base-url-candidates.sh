@@ -53,7 +53,7 @@ normalize() {
   if [[ "$u" != http://* && "$u" != https://* ]]; then
     u="https://$u"
   fi
-  u="$(printf '%s' "$u" | sed -E 's#^(https?://[^/]+).*$#\\1#')"
+  u="$(printf '%s' "$u" | sed -E 's#^(https?://[^/]+).*$#\1#')"
   u="${u%/}"
   printf '%s' "$u"
 }

@@ -7,8 +7,11 @@ set -euo pipefail
 #
 # Required env:
 #   CLOUDFLARE_API_TOKEN
-#   CLOUDFLARE_ACCOUNT_ID
 #   CF_PAGES_PROJECT
+#
+# Optional env:
+#   CLOUDFLARE_ACCOUNT_ID
+#   CLOUDFLARE_ACCOUNT_NAME   (used when token can access multiple accounts)
 #
 # Inputs (env values to set):
 #   NEXT_PUBLIC_SUPABASE_URL
@@ -31,14 +34,15 @@ require_bin "curl"
 require_bin "jq"
 
 CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
-CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
-CF_PAGES_PROJECT="${CF_PAGES_PROJECT:-}"
+CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-${CF_ACCOUNT_ID:-}}"
+CLOUDFLARE_ACCOUNT_NAME="${CLOUDFLARE_ACCOUNT_NAME:-${CF_ACCOUNT_NAME:-}}"
+CF_PAGES_PROJECT="${CF_PAGES_PROJECT:-${CF_PAGES_PROJECT_NAME:-}}"
 
 NEXT_PUBLIC_SUPABASE_URL="${NEXT_PUBLIC_SUPABASE_URL:-}"
 SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"
 
-if [ -z "${CLOUDFLARE_API_TOKEN}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID}" ] || [ -z "${CF_PAGES_PROJECT}" ]; then
-  echo "Missing Cloudflare Pages config (CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID/CF_PAGES_PROJECT)." >&2
+if [ -z "${CLOUDFLARE_API_TOKEN}" ] || [ -z "${CF_PAGES_PROJECT}" ]; then
+  echo "Missing Cloudflare Pages config (CLOUDFLARE_API_TOKEN/CF_PAGES_PROJECT)." >&2
   exit 2
 fi
 
@@ -56,8 +60,57 @@ auth=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")
 accept=(-H "Accept: application/json")
 ct=(-H "Content-Type: application/json")
 
+get_json() {
+  local url="$1"
+  curl -sS -m 20 "${auth[@]}" "${accept[@]}" "$url"
+}
+
+resolve_account_id_for_pages_project() {
+  # Best-effort: given CLOUDFLARE_API_TOKEN + CF_PAGES_PROJECT, locate the owning account id.
+  local accounts_json count
+
+  if [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+    printf '%s' "${CLOUDFLARE_ACCOUNT_ID}"
+    return 0
+  fi
+
+  accounts_json="$(get_json "${api}/accounts" 2>/dev/null || true)"
+  if ! echo "$accounts_json" | jq -e 'type=="object" and (.success? == true) and (.result? | type=="array")' >/dev/null 2>&1; then
+    echo "Cloudflare: failed to list accounts (cannot resolve CLOUDFLARE_ACCOUNT_ID)." >&2
+    exit 2
+  fi
+
+  # Prefer the account that owns CF_PAGES_PROJECT (token + project name should be enough).
+  while IFS=$'\t' read -r aid aname; do
+    [ -n "${aid:-}" ] || continue
+    if [ -n "${CLOUDFLARE_ACCOUNT_NAME:-}" ] && [ "${aname:-}" != "${CLOUDFLARE_ACCOUNT_NAME}" ]; then
+      continue
+    fi
+    proj_url="${api}/accounts/${aid}/pages/projects/${CF_PAGES_PROJECT}"
+    proj_json="$(get_json "$proj_url" 2>/dev/null || true)"
+    if echo "$proj_json" | jq -e 'type=="object" and (.success? == true)' >/dev/null 2>&1; then
+      printf '%s' "$aid"
+      return 0
+    fi
+  done < <(echo "$accounts_json" | jq -r '.result[]? | "\(.id)\t\(.name // \"\")"' 2>/dev/null || true)
+
+  count="$(echo "$accounts_json" | jq -r '.result | length' 2>/dev/null || echo "0")"
+  if [ "$count" = "1" ]; then
+    echo "$accounts_json" | jq -r '.result[0].id // empty' 2>/dev/null
+    return 0
+  fi
+
+  echo "Cloudflare: could not resolve CLOUDFLARE_ACCOUNT_ID for Pages project=${CF_PAGES_PROJECT}." >&2
+  echo "Fix: set CLOUDFLARE_ACCOUNT_ID (or CLOUDFLARE_ACCOUNT_NAME to disambiguate), and ensure token scopes: Account:Read + Pages:Read + Pages:Edit." >&2
+  exit 2
+}
+
+if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+  CLOUDFLARE_ACCOUNT_ID="$(resolve_account_id_for_pages_project)"
+fi
+
 proj_url="${api}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CF_PAGES_PROJECT}"
-proj_json="$(curl -sS -m 20 "${auth[@]}" "${accept[@]}" "$proj_url" || true)"
+proj_json="$(get_json "$proj_url" 2>/dev/null || true)"
 if ! echo "$proj_json" | jq -e 'type=="object" and (.success? == true) and (.result? | type=="object")' >/dev/null 2>&1; then
   echo "Cloudflare Pages: failed to fetch project metadata (project=${CF_PAGES_PROJECT})." >&2
   exit 2
@@ -100,4 +153,3 @@ if [[ "$code" != 2* ]]; then
 fi
 
 echo "Cloudflare Pages env upsert ok: project=${CF_PAGES_PROJECT} (production+preview)" >&2
-

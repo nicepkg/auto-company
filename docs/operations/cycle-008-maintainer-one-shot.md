@@ -39,14 +39,20 @@ cd /path/to/auto-company
 #
 # Cloudflare Pages discovery requires:
 #   CLOUDFLARE_API_TOKEN
-#   CLOUDFLARE_ACCOUNT_ID
 #   CF_PAGES_PROJECT
+# Optional:
+#   CLOUDFLARE_ACCOUNT_ID
+#   CLOUDFLARE_ACCOUNT_NAME   (if token can access multiple accounts)
 
 ./projects/security-questionnaire-autopilot/scripts/collect-base-url-candidates-from-hosting.sh \
   | tee /tmp/hosted-base-url-candidates.txt
 ```
 
 If that prints nothing, you’re missing provider env vars/tokens for API discovery. Use Option B or C.
+
+If you need help finding provider account/project identifiers with this repo’s scripts, see:
+
+- `docs/devops/cycle-012-hosting-provider-id-discovery.md`
 
 ### Option B: direct Vercel API (curl + jq)
 
@@ -223,4 +229,3 @@ Then re-run step 4.
 ## Next Action
 
 Run step 4 (`gh workflow run ... -f preflight_only=true`) and fix any red state by looping step 5 once, until `env-health` is green.
-

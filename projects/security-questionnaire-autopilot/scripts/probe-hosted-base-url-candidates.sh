@@ -89,7 +89,14 @@ for raw in "$@"; do
   out="$tmp_dir/body.json"
   hdr="$tmp_dir/headers.txt"
 
-  code="$(curl -sS -m 12 -D "$hdr" -o "$out" -w "%{http_code}" "$endpoint" || echo "000")"
+  # Avoid stale output/headers when curl fails early (e.g., DNS failure). This keeps the
+  # probe report deterministic and prevents "body_head" from a previous candidate leaking.
+  : >"$out"
+  : >"$hdr"
+
+  # `curl -w "%{http_code}"` often prints "000" on network errors; don't append a second "000".
+  code="$(curl -sS -m 12 -D "$hdr" -o "$out" -w "%{http_code}" "$endpoint" || true)"
+  code="${code:-000}"
 
   ok="-"
   has_url="-"

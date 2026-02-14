@@ -37,7 +37,7 @@ require_bin "jq"
 
 VERCEL_TOKEN="${VERCEL_TOKEN:-}"
 VERCEL_PROJECT_ID="${VERCEL_PROJECT_ID:-}"
-VERCEL_PROJECT="${VERCEL_PROJECT:-}"
+VERCEL_PROJECT="${VERCEL_PROJECT:-${VERCEL_PROJECT_NAME:-}}"
 VERCEL_TEAM_ID="${VERCEL_TEAM_ID:-}"
 VERCEL_TEAM_SLUG="${VERCEL_TEAM_SLUG:-}"
 
@@ -98,16 +98,60 @@ auth=(-H "Authorization: Bearer ${VERCEL_TOKEN}")
 accept=(-H "Accept: application/json")
 ct=(-H "Content-Type: application/json")
 
-qs=""
-if [ -n "${VERCEL_TEAM_ID}" ]; then
-  qs="${qs}${qs:+&}teamId=${VERCEL_TEAM_ID}"
-fi
-if [ -n "${VERCEL_TEAM_SLUG}" ]; then
-  qs="${qs}${qs:+&}slug=${VERCEL_TEAM_SLUG}"
-fi
-if [ -n "${qs}" ]; then
-  qs="&${qs}"
-fi
+get_json() {
+  local url="$1"
+  curl -sS -m 15 "${auth[@]}" "${accept[@]}" "$url"
+}
+
+EFFECTIVE_TEAM_ID="${VERCEL_TEAM_ID:-}"
+EFFECTIVE_TEAM_SLUG="${VERCEL_TEAM_SLUG:-}"
+build_env_qs() {
+  # For endpoints like: .../env?upsert=true&teamId=...&slug=...
+  local q=""
+  if [ -n "${EFFECTIVE_TEAM_ID:-}" ]; then
+    q="${q}${q:+&}teamId=${EFFECTIVE_TEAM_ID}"
+  fi
+  if [ -n "${EFFECTIVE_TEAM_SLUG:-}" ]; then
+    q="${q}${q:+&}slug=${EFFECTIVE_TEAM_SLUG}"
+  fi
+  if [ -n "${q}" ]; then
+    printf '&%s' "$q"
+    return 0
+  fi
+  printf '%s' ""
+}
+
+resolve_team_scope_if_needed() {
+  # Reduce maintainer burden: VERCEL_TOKEN + VERCEL_PROJECT (name) should work even for team-scoped projects.
+  if [ -n "${EFFECTIVE_TEAM_ID:-}" ] || [ -n "${EFFECTIVE_TEAM_SLUG:-}" ]; then
+    return 0
+  fi
+
+  proj_json="$(get_json "${api}/v9/projects/${ID_OR_NAME}" 2>/dev/null || true)"
+  if echo "$proj_json" | jq -e 'type=="object" and (.id? | type=="string")' >/dev/null 2>&1; then
+    return 0
+  fi
+
+  teams_json="$(get_json "${api}/v2/teams?limit=100" 2>/dev/null || true)"
+  if ! echo "$teams_json" | jq -e 'type=="object" and (.teams? | type=="array")' >/dev/null 2>&1; then
+    return 0
+  fi
+
+  while IFS=$'\t' read -r tid tslug; do
+    [ -n "${tid:-}" ] || continue
+    proj_json="$(get_json "${api}/v9/projects/${ID_OR_NAME}?teamId=${tid}" 2>/dev/null || true)"
+    if echo "$proj_json" | jq -e 'type=="object" and (.id? | type=="string")' >/dev/null 2>&1; then
+      EFFECTIVE_TEAM_ID="$tid"
+      EFFECTIVE_TEAM_SLUG="${tslug:-}"
+      return 0
+    fi
+  done < <(echo "$teams_json" | jq -r '.teams[]? | "\(.id // \"\")\t\(.slug // \"\")"' 2>/dev/null || true)
+
+  return 0
+}
+
+resolve_team_scope_if_needed || true
+qs="$(build_env_qs)"
 
 tmpdir="$(mktemp -d)"
 cleanup() { rm -rf "$tmpdir"; }
@@ -155,4 +199,3 @@ post_env "$payload_public" "${tmpdir}/resp-public.json"
 post_env "$payload_secret" "${tmpdir}/resp-secret.json"
 
 echo "Vercel env upsert ok: project=${ID_OR_NAME} targets=$(IFS=,; echo "${filtered_targets[*]}")" >&2
-

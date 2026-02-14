@@ -11,8 +11,11 @@ set -euo pipefail
 #
 # Required env:
 #   CLOUDFLARE_API_TOKEN
-#   CLOUDFLARE_ACCOUNT_ID
 #   CF_PAGES_PROJECT
+#
+# Optional env:
+#   CLOUDFLARE_ACCOUNT_ID
+#   CLOUDFLARE_ACCOUNT_NAME   (used when token can access multiple accounts)
 #
 # Notes:
 # - Uses:
@@ -23,13 +26,14 @@ set -euo pipefail
 STRICT="${STRICT:-0}"
 
 CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
-CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
-CF_PAGES_PROJECT="${CF_PAGES_PROJECT:-}"
+CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-${CF_ACCOUNT_ID:-}}"
+CLOUDFLARE_ACCOUNT_NAME="${CLOUDFLARE_ACCOUNT_NAME:-${CF_ACCOUNT_NAME:-}}"
+CF_PAGES_PROJECT="${CF_PAGES_PROJECT:-${CF_PAGES_PROJECT_NAME:-}}"
 CF_PAGES_BRANCH="${CF_PAGES_BRANCH:-${GITHUB_REF_NAME:-}}"
 CF_PAGES_DEPLOYMENTS_LIMIT="${CF_PAGES_DEPLOYMENTS_LIMIT:-20}"
 CF_PAGES_DEPLOYMENTS_ENVS="${CF_PAGES_DEPLOYMENTS_ENVS:-production,preview}"
 
-if [ -z "${CLOUDFLARE_API_TOKEN}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID}" ] || [ -z "${CF_PAGES_PROJECT}" ]; then
+if [ -z "${CLOUDFLARE_API_TOKEN}" ] || [ -z "${CF_PAGES_PROJECT}" ]; then
   exit 0
 fi
 
@@ -54,7 +58,7 @@ normalize_url() {
   if [[ "$u" != http://* && "$u" != https://* ]]; then
     u="https://$u"
   fi
-  u="$(printf '%s' "$u" | sed -E 's#^(https?://[^/]+).*$#\\1#')"
+  u="$(printf '%s' "$u" | sed -E 's#^(https?://[^/]+).*$#\1#')"
   u="${u%/}"
   printf '%s' "$u"
 }
@@ -79,6 +83,72 @@ get_json() {
   local url="$1"
   curl -sS -m 15 "${auth[@]}" "${accept[@]}" "$url"
 }
+
+resolve_account_id() {
+  # Best-effort resolution:
+  # - If CLOUDFLARE_ACCOUNT_ID is already set, use it.
+  # - Else, try to find the account that contains CF_PAGES_PROJECT by scanning visible accounts.
+  # - Else if token can see exactly one account, use that.
+  # - Else if CLOUDFLARE_ACCOUNT_NAME is set, select the matching account.
+  # - Else fail (STRICT=1) or output nothing.
+  if [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+    printf '%s' "${CLOUDFLARE_ACCOUNT_ID}"
+    return 0
+  fi
+
+  accounts_json="$(get_json "${api}/accounts" 2>/dev/null || true)"
+  if ! echo "$accounts_json" | jq -e 'type=="object" and (.success? == true) and (.result? | type=="array")' >/dev/null 2>&1; then
+    if [ "$STRICT" = "1" ]; then
+      echo "Cloudflare: failed to list accounts (cannot resolve CLOUDFLARE_ACCOUNT_ID)." >&2
+      echo "$accounts_json" >&2
+      exit 2
+    fi
+    return 1
+  fi
+
+  # Prefer the account that actually owns the Pages project. This reduces maintainer config burden:
+  # token + project name is enough even when the token can access multiple accounts.
+  while IFS=$'\t' read -r aid aname; do
+    [ -n "${aid:-}" ] || continue
+    if [ -n "${CLOUDFLARE_ACCOUNT_NAME:-}" ] && [ "${aname:-}" != "${CLOUDFLARE_ACCOUNT_NAME}" ]; then
+      continue
+    fi
+    proj_url="${api}/accounts/${aid}/pages/projects/${CF_PAGES_PROJECT}"
+    proj_json="$(get_json "$proj_url" 2>/dev/null || true)"
+    if echo "$proj_json" | jq -e 'type=="object" and (.success? == true)' >/dev/null 2>&1; then
+      printf '%s' "$aid"
+      return 0
+    fi
+  done < <(echo "$accounts_json" | jq -r '.result[]? | "\(.id)\t\(.name // \"\")"' 2>/dev/null || true)
+
+  count="$(echo "$accounts_json" | jq -r '.result | length' 2>/dev/null || echo "0")"
+  if [ "$count" = "1" ]; then
+    echo "$accounts_json" | jq -r '.result[0].id // empty' 2>/dev/null
+    return 0
+  fi
+
+  if [ -n "${CLOUDFLARE_ACCOUNT_NAME:-}" ]; then
+    echo "$accounts_json" | jq -r --arg name "${CLOUDFLARE_ACCOUNT_NAME}" '.result[]? | select(.name? == $name) | .id // empty' 2>/dev/null | head -n 1
+    return 0
+  fi
+
+  if [ "$STRICT" = "1" ]; then
+    echo "Cloudflare: token can access multiple accounts; set CLOUDFLARE_ACCOUNT_ID (or CLOUDFLARE_ACCOUNT_NAME)." >&2
+    echo "Accounts visible to this token:" >&2
+    echo "$accounts_json" | jq -r '.result[]? | "  - \(.name) (\(.id))"' >&2
+    exit 2
+  fi
+  return 1
+}
+
+resolved_id="$(resolve_account_id || true)"
+if [ -n "${resolved_id:-}" ]; then
+  CLOUDFLARE_ACCOUNT_ID="$resolved_id"
+fi
+if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+  # Best-effort: without an account id we cannot query Pages endpoints.
+  exit 0
+fi
 
 proj_url="${api}/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/${CF_PAGES_PROJECT}"
 proj_json="$(get_json "$proj_url" 2>/dev/null || true)"

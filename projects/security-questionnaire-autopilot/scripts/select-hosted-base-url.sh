@@ -95,9 +95,11 @@ if [ -z "$candidates" ]; then
   # Vercel:
   # - VERCEL_TOKEN + (VERCEL_PROJECT_ID or VERCEL_PROJECT)
   # Cloudflare Pages:
-  # - CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID + CF_PAGES_PROJECT
-  if (have_env "VERCEL_TOKEN" && (have_env "VERCEL_PROJECT_ID" || have_env "VERCEL_PROJECT")) || \
-     (have_env "CLOUDFLARE_API_TOKEN" && have_env "CLOUDFLARE_ACCOUNT_ID" && have_env "CF_PAGES_PROJECT"); then
+  # - CLOUDFLARE_API_TOKEN + CF_PAGES_PROJECT
+  #   (CLOUDFLARE_ACCOUNT_ID is optional; the collector can resolve it if the token sees 1 account,
+  #    or if CLOUDFLARE_ACCOUNT_NAME is set)
+  if (have_env "VERCEL_TOKEN" && (have_env "VERCEL_PROJECT_ID" || have_env "VERCEL_PROJECT" || have_env "VERCEL_PROJECT_NAME")) || \
+     (have_env "CLOUDFLARE_API_TOKEN" && have_env "CF_PAGES_PROJECT"); then
     echo "No explicit BASE_URL candidates provided; attempting hosting API discovery..." >&2
     discovered="$("$COLLECT_HOSTING" | join_lines_to_space || true)"
     candidates="${discovered:-}"

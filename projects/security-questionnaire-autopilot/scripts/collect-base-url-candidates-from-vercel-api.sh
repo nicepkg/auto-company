@@ -28,7 +28,7 @@ STRICT="${STRICT:-0}"
 
 VERCEL_TOKEN="${VERCEL_TOKEN:-}"
 VERCEL_PROJECT_ID="${VERCEL_PROJECT_ID:-}"
-VERCEL_PROJECT="${VERCEL_PROJECT:-}"
+VERCEL_PROJECT="${VERCEL_PROJECT:-${VERCEL_PROJECT_NAME:-}}"
 VERCEL_TEAM_ID="${VERCEL_TEAM_ID:-}"
 VERCEL_TEAM_SLUG="${VERCEL_TEAM_SLUG:-}"
 VERCEL_DEPLOYMENTS_TARGETS="${VERCEL_DEPLOYMENTS_TARGETS:-}"
@@ -57,16 +57,23 @@ api="https://api.vercel.com"
 auth=(-H "Authorization: Bearer ${VERCEL_TOKEN}")
 accept=(-H "Accept: application/json")
 
-qs=""
-if [ -n "${VERCEL_TEAM_ID}" ]; then
-  qs="${qs}${qs:+&}teamId=${VERCEL_TEAM_ID}"
-fi
-if [ -n "${VERCEL_TEAM_SLUG}" ]; then
-  qs="${qs}${qs:+&}slug=${VERCEL_TEAM_SLUG}"
-fi
-if [ -n "${qs}" ]; then
-  qs="?$qs"
-fi
+EFFECTIVE_TEAM_ID="${VERCEL_TEAM_ID:-}"
+EFFECTIVE_TEAM_SLUG="${VERCEL_TEAM_SLUG:-}"
+build_qs() {
+  local q=""
+  if [ -n "${EFFECTIVE_TEAM_ID:-}" ]; then
+    q="${q}${q:+&}teamId=${EFFECTIVE_TEAM_ID}"
+  fi
+  if [ -n "${EFFECTIVE_TEAM_SLUG:-}" ]; then
+    q="${q}${q:+&}slug=${EFFECTIVE_TEAM_SLUG}"
+  fi
+  if [ -n "${q}" ]; then
+    printf '?%s' "$q"
+    return 0
+  fi
+  printf '%s' ""
+}
+qs="$(build_qs)"
 
 normalize_url() {
   local u="$1"
@@ -75,7 +82,7 @@ normalize_url() {
     u="https://$u"
   fi
   # Keep scheme + host only.
-  u="$(printf '%s' "$u" | sed -E 's#^(https?://[^/]+).*$#\\1#')"
+  u="$(printf '%s' "$u" | sed -E 's#^(https?://[^/]+).*$#\1#')"
   u="${u%/}"
   printf '%s' "$u"
 }
@@ -105,12 +112,32 @@ project_json="$(
   get_json "${api}/v9/projects/${ID_OR_NAME}${qs}" 2>/dev/null || true
 )"
 if ! echo "$project_json" | jq -e 'type=="object" and (.id? | type=="string")' >/dev/null 2>&1; then
-  if [ "$STRICT" = "1" ]; then
-    echo "Vercel: failed to fetch project metadata for idOrName=${ID_OR_NAME}" >&2
-    echo "$project_json" >&2
-    exit 2
+  # Reduce maintainer config burden: if a token can access multiple teams, try to resolve the
+  # owning team automatically when VERCEL_TEAM_ID/VERCEL_TEAM_SLUG are not provided.
+  if [ -z "${EFFECTIVE_TEAM_ID:-}" ] && [ -z "${EFFECTIVE_TEAM_SLUG:-}" ]; then
+    teams_json="$(get_json "${api}/v2/teams?limit=100" 2>/dev/null || true)"
+    if echo "$teams_json" | jq -e 'type=="object" and (.teams? | type=="array")' >/dev/null 2>&1; then
+      while IFS=$'\t' read -r tid tslug; do
+        [ -n "${tid:-}" ] || continue
+        EFFECTIVE_TEAM_ID="$tid"
+        EFFECTIVE_TEAM_SLUG="${tslug:-}"
+        qs="$(build_qs)"
+        project_json="$(get_json "${api}/v9/projects/${ID_OR_NAME}${qs}" 2>/dev/null || true)"
+        if echo "$project_json" | jq -e 'type=="object" and (.id? | type=="string")' >/dev/null 2>&1; then
+          break
+        fi
+      done < <(echo "$teams_json" | jq -r '.teams[]? | "\(.id // \"\")\t\(.slug // \"\")"' 2>/dev/null || true)
+    fi
   fi
-  exit 0
+
+  if ! echo "$project_json" | jq -e 'type=="object" and (.id? | type=="string")' >/dev/null 2>&1; then
+    if [ "$STRICT" = "1" ]; then
+      echo "Vercel: failed to fetch project metadata for idOrName=${ID_OR_NAME}" >&2
+      echo "$project_json" >&2
+      exit 2
+    fi
+    exit 0
+  fi
 fi
 
 project_id="$(echo "$project_json" | jq -r '.id // empty')"
@@ -164,11 +191,11 @@ for target in "${_targets[@]:-}"; do
   [ -n "${target:-}" ] || continue
 
   deploy_qs="projectId=${project_id}&limit=${limit}&target=${target}"
-  if [ -n "${VERCEL_TEAM_ID}" ]; then
-    deploy_qs="${deploy_qs}&teamId=${VERCEL_TEAM_ID}"
+  if [ -n "${EFFECTIVE_TEAM_ID:-}" ]; then
+    deploy_qs="${deploy_qs}&teamId=${EFFECTIVE_TEAM_ID}"
   fi
-  if [ -n "${VERCEL_TEAM_SLUG}" ]; then
-    deploy_qs="${deploy_qs}&slug=${VERCEL_TEAM_SLUG}"
+  if [ -n "${EFFECTIVE_TEAM_SLUG:-}" ]; then
+    deploy_qs="${deploy_qs}&slug=${EFFECTIVE_TEAM_SLUG}"
   fi
 
   deployments_json="$(

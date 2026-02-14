@@ -72,8 +72,15 @@ Supported providers and env vars:
   - Optional (team-scoped): `VERCEL_TEAM_ID` and/or `VERCEL_TEAM_SLUG`
 - Cloudflare Pages:
   - `CLOUDFLARE_API_TOKEN`
-  - `CLOUDFLARE_ACCOUNT_ID`
   - `CF_PAGES_PROJECT`
+  - Optional:
+    - `CLOUDFLARE_ACCOUNT_ID`
+    - `CLOUDFLARE_ACCOUNT_NAME` (only needed if the token can access multiple accounts)
+    - `CF_PAGES_PROJECT_NAME` (alias for `CF_PAGES_PROJECT`)
+
+If you need help finding the right project/account identifiers, see:
+
+- `docs/devops/cycle-012-hosting-provider-id-discovery.md`
 
 And if you want a single command that pulls candidates from env/vars/deployments and then probes `/api/workflow/env-health`, use:
 

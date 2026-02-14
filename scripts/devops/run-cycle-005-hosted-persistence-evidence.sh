@@ -22,6 +22,7 @@ Usage:
 
 Flags:
   --repo OWNER/REPO            (default: inferred from git remote via gh)
+  --ref REF                    Git ref to run workflow from (branch, tag, or SHA). Use when the workflow exists on a non-default branch.
   --candidates "u1 u2 ..."     Set/override HOSTED_WORKFLOW_BASE_URL_CANDIDATES for this run (also sets repo variable if --set-variable)
   --candidates-file PATH       Read candidates from file (one per line; comments allowed)
   --set-variable               Write candidates into repo variable HOSTED_WORKFLOW_BASE_URL_CANDIDATES
@@ -52,6 +53,7 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 fi
 
 REPO=""
+REF=""
 CANDIDATES=""
 CANDIDATES_FILE=""
 SET_VARIABLE="0"
@@ -73,6 +75,7 @@ AUTO_DISCOVER_GITHUB="0"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --repo) REPO="${2:-}"; shift 2 ;;
+    --ref) REF="${2:-}"; shift 2 ;;
     --candidates) CANDIDATES="${2:-}"; shift 2 ;;
     --candidates-file) CANDIDATES_FILE="${2:-}"; shift 2 ;;
     --set-variable) SET_VARIABLE="1"; shift 1 ;;
@@ -115,7 +118,7 @@ normalize_origin() {
     printf '%s' ""
     return 0
   fi
-  u="$(printf '%s' "$u" | sed -E 's#^(https?://[^/]+).*$#\\1#')"
+  u="$(printf '%s' "$u" | sed -E 's#^(https?://[^/]+).*$#\1#')"
   u="${u%/}"
   printf '%s' "$u"
 }
@@ -290,6 +293,24 @@ format_candidates_field() {
   printf '%s' "$out"
 }
 
+format_candidates_field_best_effort() {
+  # Like format_candidates_field, but never hard-fails.
+  # Useful for printing copy/paste hints without risking early exit on whitespace-only inputs.
+  local raw="${1:-}"
+  local tmp out
+  raw="$(printf '%s' "${raw:-}" | tr '\n' ' ' | tr -s ' ' | sed 's/^ *//; s/ *$//')"
+  [ -n "${raw:-}" ] || { printf '%s' ""; return 0; }
+  tmp="$(mktemp)"
+  printf '%s\n' "$raw" >"$tmp"
+  out="$("$FORMAT" "$tmp" 2>/dev/null || true)"
+  rm -f "$tmp" 2>/dev/null || true
+  if [ -n "${out:-}" ]; then
+    printf '%s' "$out"
+    return 0
+  fi
+  printf '%s' "$raw"
+}
+
 if [ -n "${CANDIDATES_FILE:-}" ]; then
   if [ ! -f "$CANDIDATES_FILE" ]; then
     echo "Candidates file not found: $CANDIDATES_FILE" >&2
@@ -404,6 +425,11 @@ if [ -z "${BASE_URL_FIELD:-}" ] && { [ "${AUTO_DISCOVER_HOSTING}" = "1" ] || [ "
     if command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
       discovered_hosting="$("$COLLECT_HOSTING" | tr '\n' ' ' | tr -s ' ' | sed 's/^ *//; s/ *$//' || true)"
       discovered_hosting="$(format_candidates_field "${discovered_hosting:-}")"
+      if [ -z "${discovered_hosting:-}" ]; then
+        echo "Hosting API discovery returned no BASE_URL candidates." >&2
+        echo "Diagnostics (STRICT=1):" >&2
+        HOSTING_DISCOVERY_DIAG=1 HOSTING_DISCOVERY_STRICT=1 "$COLLECT_HOSTING" >/dev/null || true
+      fi
     else
       echo "Warning: --autodiscover-hosting requires curl + jq; skipping." >&2
     fi
@@ -451,10 +477,11 @@ if [ -z "${BASE_URL_FIELD:-}" ]; then
   echo "  3) Or run this script with --candidates-file docs/devops/base-url-candidates.template.txt --set-variable" >&2
   echo "  4) Or (optional) use autodiscovery and optionally persist via --set-variable:" >&2
   echo "     - GitHub Deployments: --autodiscover-github (requires repo publishes deployment metadata)" >&2
-  echo "     - Hosting APIs: --autodiscover-hosting (requires provider tokens + ids)" >&2
+  echo "     - Hosting APIs: --autodiscover-hosting (requires provider tokens + project identifiers)" >&2
   echo "     - Both: --autodiscover" >&2
   echo "     Vercel: VERCEL_TOKEN + (VERCEL_PROJECT_ID or VERCEL_PROJECT) [+ VERCEL_TEAM_ID/VERCEL_TEAM_SLUG]" >&2
-  echo "     Cloudflare Pages: CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID + CF_PAGES_PROJECT" >&2
+  echo "            (team vars are optional; scripts attempt best-effort team resolution)" >&2
+  echo "     Cloudflare Pages: CLOUDFLARE_API_TOKEN + CF_PAGES_PROJECT [+ CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_ACCOUNT_NAME]" >&2
   echo "" >&2
   echo "Where to get BASE_URL candidates:" >&2
   echo "  - Vercel: your production deployment domain (e.g., https://<project>.vercel.app or your custom app domain)" >&2
@@ -467,6 +494,17 @@ if [ -z "${BASE_URL_FIELD:-}" ]; then
 fi
 
 echo "BASE_URL candidates source: ${BASE_URL_SOURCE:-unknown}" >&2
+
+# Always print a copy/paste suggestion for HOSTED_WORKFLOW_BASE_URL_CANDIDATES. This reduces
+# maintainer burden: set the variable once, then future runs can leave base_url empty.
+paste_candidates="$(format_candidates_field_best_effort "${DISCOVERED_CANDIDATES:-${BASE_URL_FIELD:-}}")"
+if [ -n "${paste_candidates:-}" ]; then
+  echo "" >&2
+  echo "Copy/paste (repo variable HOSTED_WORKFLOW_BASE_URL_CANDIDATES):" >&2
+  echo "  gh variable set HOSTED_WORKFLOW_BASE_URL_CANDIDATES -R \"$REPO\" --body \\" >&2
+  echo "    \"${paste_candidates}\"" >&2
+fi
+
 LOCAL_SELECTED_BASE_URL=""
 
 if [ "${LOCAL_PROBE}" = "1" ]; then
@@ -552,7 +590,13 @@ require_fallback="$([ "${REQUIRE_FALLBACK_SECRETS}" = "1" ] && echo true || echo
 start_ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 enable_autorun_after_preflight="$([ "${AUTORUN_AFTER_PREFLIGHT}" = "1" ] && echo true || echo false)"
 
-gh workflow run cycle-005-hosted-persistence-evidence.yml -R "$REPO" \
+tmp_wf="$(mktemp)"
+ref_args=()
+if [ -n "${REF:-}" ]; then
+  ref_args+=(--ref "$REF")
+fi
+if ! gh workflow run cycle-005-hosted-persistence-evidence.yml -R "$REPO" \
+  "${ref_args[@]}" \
   -f persist_base_url_candidates="${PERSIST_CANDIDATES}" \
   -f base_url="${BASE_URL_FIELD}" \
   -f preflight_only="${PREFLIGHT_ONLY}" \
@@ -560,7 +604,18 @@ gh workflow run cycle-005-hosted-persistence-evidence.yml -R "$REPO" \
   -f run_id="${RUN_ID}" \
   -f skip_sql_apply="${SKIP_SQL_APPLY}" \
   -f sql_bundle="${SQL_BUNDLE}" \
-  -f require_fallback_supabase_secrets="${require_fallback}" >/dev/null
+  -f require_fallback_supabase_secrets="${require_fallback}" >"$tmp_wf" 2>&1; then
+  cat "$tmp_wf" >&2 || true
+  if grep -q "HTTP 404" "$tmp_wf" 2>/dev/null; then
+    echo "" >&2
+    echo "Likely cause: workflow 'cycle-005-hosted-persistence-evidence.yml' does not exist on repo=${REPO} default branch/ref." >&2
+    echo "Check: gh workflow list -R \"$REPO\"" >&2
+    echo "Fix: run against the repo/ref that actually contains the workflow (or merge/push the workflow to the target repo)." >&2
+  fi
+  rm -f "$tmp_wf" 2>/dev/null || true
+  exit 2
+fi
+rm -f "$tmp_wf" 2>/dev/null || true
 
 query="map(select(.createdAt >= \"$start_ts\")) | .[0].databaseId"
 run_dbid="$(gh run list -R "$REPO" --workflow cycle-005-hosted-persistence-evidence.yml -L 10 --json databaseId,createdAt -q "$query" 2>/dev/null || true)"
