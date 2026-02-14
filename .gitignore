@@ -137,9 +137,8 @@ logs/
 .auto-loop-paused
 memories/consensus.md.bak
 
-# Projects directory (show folder on GitHub, hide contents)
-projects/*
-!projects/.gitkeep
+# Projects (track source; ignore generated outputs and large local artifacts)
+projects/**/runs/
 .vscode-test-web
 **/.vitepress/cache
 **/.vitepress/.temp
@@ -148,15 +147,6 @@ product-materials
 
 # for codex
 tasks
-
-# ====================
-# Docs & Memory
-# ====================
-# Keep role folders, ignore their generated docs
-docs/*
-!docs/*/
-docs/*/*
-!docs/*/.gitkeep
 
 # Ignore all memories (keep folder marker only)
 memories/*

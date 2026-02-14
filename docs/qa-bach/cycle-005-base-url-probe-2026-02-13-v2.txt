@@ -1,0 +1,32 @@
+# Cycle 005 Hosted BASE_URL Probe v2 (QA)
+# timestamp_utc=2026-02-13T21:26:46Z
+
+candidates:
+https://security-questionnaire-autopilot-hosted-git-main-nicepkg.vercel.app
+https://security-questionnaire-autopilot-git-main-nicepkg.vercel.app
+https://security-questionnaire-autopilot-hosted-git-main-junhengz.vercel.app
+https://security-questionnaire-autopilot-git-main-junhengz.vercel.app
+https://security-questionnaire-autopilot-hosted-nicepkg.vercel.app
+https://security-questionnaire-autopilot-nicepkg.vercel.app
+https://security-questionnaire-autopilot-hosted-junhengz.vercel.app
+https://security-questionnaire-autopilot-junhengz.vercel.app
+https://auto-company-git-main-nicepkg.vercel.app
+https://auto-company-git-main-junhengz.vercel.app
+https://security-questionnaire-autopilot-hosted.vercel.app
+https://security-questionnaire-autopilot.vercel.app
+https://auto-company.vercel.app
+
+results:
+- endpoint=https://security-questionnaire-autopilot-hosted-git-main-nicepkg.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::876wj-1771018006246-651d8100aab6 "
+- endpoint=https://security-questionnaire-autopilot-git-main-nicepkg.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::nbqbn-1771018006696-70ca9616c2e0 "
+- endpoint=https://security-questionnaire-autopilot-hosted-git-main-junhengz.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::rt876-1771018006997-53c8c0672380 "
+- endpoint=https://security-questionnaire-autopilot-git-main-junhengz.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::6krnn-1771018007299-825b51ee7eec "
+- endpoint=https://security-questionnaire-autopilot-hosted-nicepkg.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::r4t4g-1771018007594-f0de48c675c9 "
+- endpoint=https://security-questionnaire-autopilot-nicepkg.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::wbn4w-1771018007926-5b2c3a996a00 "
+- endpoint=https://security-questionnaire-autopilot-hosted-junhengz.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::kw5tm-1771018008221-ead2ae47a600 "
+- endpoint=https://security-questionnaire-autopilot-junhengz.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::ffm5h-1771018008522-eb4338478bea "
+- endpoint=https://auto-company-git-main-nicepkg.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::bhpqf-1771018008752-b6bbd7f400f5 "
+- endpoint=https://auto-company-git-main-junhengz.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::9mlpb-1771018009037-307ea41cb503 "
+- endpoint=https://security-questionnaire-autopilot-hosted.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::9nnj5-1771018009273-7b5be5b635cc "
+- endpoint=https://security-questionnaire-autopilot.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::876wj-1771018009498-61c07f21838a "
+- endpoint=https://auto-company.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::vjsvd-1771018009720-c44ab7d7a614 "
