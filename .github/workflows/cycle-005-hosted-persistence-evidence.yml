@@ -3,6 +3,11 @@ name: cycle-005-hosted-persistence-evidence
 on:
   workflow_dispatch:
     inputs:
+      local_runtime:
+        description: "Credential-free fallback: start an ephemeral local Next.js runtime inside this workflow run and use BASE_URL=http://127.0.0.1:<port>. This is NOT a production hosted origin; it is only for validating the runtime contract when external hosting is not configured."
+        type: boolean
+        required: true
+        default: false
       persist_base_url_candidates:
         description: "If true, persist the provided base_url/base_url_candidates into repo variable HOSTED_WORKFLOW_BASE_URL_CANDIDATES (formatted + de-duplicated). Use this to set candidates once, then leave base_url empty on future runs."
         type: boolean
@@ -33,6 +38,11 @@ on:
         default: ""
       skip_sql_apply:
         description: "Skip applying the Supabase SQL bundle (recommended if already applied via Dashboard SQL Editor)"
+        type: boolean
+        required: true
+        default: true
+      preflight_require_supabase_health:
+        description: "If true (default), preflight enforces supabase-health when skip_sql_apply=true. Set false only to validate BASE_URL + env-health (useful while Supabase is not yet provisioned)."
         type: boolean
         required: true
         default: true
@@ -74,12 +84,14 @@ jobs:
     env:
       # Defaults for non-workflow_dispatch triggers (e.g., schedule).
       INPUT_PREFLIGHT_ONLY: ${{ github.event.inputs.preflight_only || 'false' }}
+      INPUT_LOCAL_RUNTIME: ${{ github.event.inputs.local_runtime || 'false' }}
       INPUT_PERSIST_BASE_URL_CANDIDATES: ${{ github.event.inputs.persist_base_url_candidates || 'false' }}
       INPUT_ENABLE_AUTORUN_AFTER_PREFLIGHT: ${{ github.event.inputs.enable_autorun_after_preflight || 'false' }}
       INPUT_BASE_URL: ${{ github.event.inputs.base_url || '' }}
       INPUT_BASE_URL_CANDIDATES: ${{ github.event.inputs.base_url_candidates || '' }}
       INPUT_RUN_ID: ${{ github.event.inputs.run_id || '' }}
       INPUT_SKIP_SQL_APPLY: ${{ github.event.inputs.skip_sql_apply || 'true' }}
+      INPUT_PREFLIGHT_REQUIRE_SUPABASE_HEALTH: ${{ github.event.inputs.preflight_require_supabase_health || 'true' }}
       INPUT_SQL_BUNDLE: ${{ github.event.inputs.sql_bundle || 'projects/security-questionnaire-autopilot/supabase/bundles/20260213_cycle003_hosted_workflow_migration_plus_seed.sql' }}
       INPUT_REQUIRE_FALLBACK_SUPABASE_SECRETS: ${{ github.event.inputs.require_fallback_supabase_secrets || 'false' }}
       INPUT_ATTEMPT_VERCEL_ENV_SYNC: ${{ github.event.inputs.attempt_vercel_env_sync || 'true' }}
@@ -159,6 +171,61 @@ jobs:
             echo "- persisted_repo_variable: \`${var_name}\`"
             echo "- persisted_candidates_source: \`workflow_dispatch input (base_url/base_url_candidates)\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Setup Node (local runtime)"
+        if: ${{ github.event_name == 'workflow_dispatch' && env.INPUT_LOCAL_RUNTIME == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: "Local runtime (credential-free): start ephemeral workflow API runtime"
+        if: ${{ github.event_name == 'workflow_dispatch' && env.INPUT_LOCAL_RUNTIME == 'true' }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p preflight
+
+          # This mode exists to unblock a "green preflight" signal when no external hosting is configured.
+          # It is intentionally scoped to env-health; supabase-health can be skipped via preflight_require_supabase_health=false.
+          PORT="${LOCAL_RUNTIME_PORT:-18080}"
+          BASE_URL="http://127.0.0.1:${PORT}"
+
+          # Ensure the job uses this BASE_URL for candidate assembly/probe/selection.
+          # Note: $GITHUB_ENV affects subsequent steps (including their `env:` expressions).
+          {
+            echo "INPUT_BASE_URL=${BASE_URL}"
+            echo "INPUT_BASE_URL_CANDIDATES="
+          } >> "$GITHUB_ENV"
+
+          # Set required env vars so /api/workflow/env-health shows both booleans true.
+          # These values are placeholders in local_runtime mode (do not use for production).
+          export NEXT_PUBLIC_SUPABASE_URL="http://127.0.0.1:54321"
+          export SUPABASE_SERVICE_ROLE_KEY="local_runtime_dummy_do_not_use"
+
+          echo "Starting local Next.js dev server for BASE_URL=${BASE_URL} ..." >&2
+          pushd projects/security-questionnaire-autopilot >/dev/null
+          npm ci >/dev/null
+          nohup npm run dev -- -p "${PORT}" --hostname 127.0.0.1 > ../../preflight/local-runtime.next.log 2>&1 &
+          popd >/dev/null
+
+          # Wait for env-health to be reachable and valid JSON.
+          out="preflight/env-health.local-runtime.json"
+          for i in $(seq 1 60); do
+            code="$(curl -sS -m 2 -o "$out" -w "%{http_code}" "${BASE_URL}/api/workflow/env-health" || echo "000")"
+            if [ "$code" = "200" ] && jq -e '.ok == true' "$out" >/dev/null 2>&1; then
+              echo "Local runtime ready: ${BASE_URL}/api/workflow/env-health" >&2
+              break
+            fi
+            sleep 1
+          done
+
+          code="$(curl -sS -m 2 -o "$out" -w "%{http_code}" "${BASE_URL}/api/workflow/env-health" || echo "000")"
+          if [ "$code" != "200" ]; then
+            echo "Local runtime env-health failed (HTTP $code): ${BASE_URL}/api/workflow/env-health" >&2
+            head -c 400 "$out" >&2 || true
+            exit 2
+          fi
+          jq -e '.ok == true' "$out" >/dev/null
 
       - name: Assemble + probe deployed BASE_URL candidates (always)
         id: basecands
@@ -447,7 +514,7 @@ jobs:
           fi
 
       - name: "Preflight: supabase-health (env + schema + seed) (only when skip_sql_apply=true)"
-        if: ${{ steps.basecands.outputs.has_candidates == 'true' && env.INPUT_SKIP_SQL_APPLY == 'true' }}
+        if: ${{ steps.basecands.outputs.has_candidates == 'true' && env.INPUT_SKIP_SQL_APPLY == 'true' && env.INPUT_PREFLIGHT_REQUIRE_SUPABASE_HEALTH == 'true' && env.INPUT_LOCAL_RUNTIME != 'true' }}
         env:
           BASE_URL: ${{ steps.baseurl.outputs.base_url }}
         run: |
