@@ -1,0 +1,7 @@
+question_id,question
+Q-CUST-001,Do you enforce phishing-resistant multi-factor authentication for production and administrative access?
+Q-CUST-002,What is your policy timeline to remediate critical vulnerabilities on internet-facing systems?
+Q-CUST-003,How often do you test your incident response plan and who participates in tabletop exercises?
+Q-CUST-004,How do you encrypt customer data at rest and in transit across cloud services?
+Q-CUST-005,What controls govern privileged access reviews and quarterly recertification?
+Q-CUST-006,How do you monitor security events and what is your alert triage SLA?

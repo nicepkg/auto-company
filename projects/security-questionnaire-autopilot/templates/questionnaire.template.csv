@@ -1,0 +1,4 @@
+question_id,question
+Q-001,Do you enforce multi-factor authentication for production systems?
+Q-002,How quickly do you patch critical vulnerabilities?
+Q-003,Do you maintain and test an incident response plan?

@@ -1,0 +1,11 @@
+{
+  "run_id": "pilot-001-customer-originated-20260213-121619",
+  "exported_at": "2026-02-13T20:16:26+00:00",
+  "reviewer": "Pilot One Security Reviewer",
+  "approval_timestamp": "2026-02-13T20:16:26+00:00",
+  "answer_count": 6,
+  "gates": {
+    "all_cited": true,
+    "human_approved": true
+  }
+}

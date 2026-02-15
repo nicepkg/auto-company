@@ -1,0 +1,9 @@
+timestamp=2026-02-13
+next_action=apply_migration_and_seed_then_rerun_intake_with_db_evidence
+NEXT_PUBLIC_SUPABASE_URL=unset
+SUPABASE_SERVICE_ROLE_KEY=unset
+SUPABASE_DB_URL=unset
+supabase_cli=missing
+psql_cli=missing
+node_version=$(node -v 2>/dev/null || echo missing)
+notes=No real Supabase credentials are present in this runtime environment; shipping one-command automation + runbook to execute immediately once credentials are provided.

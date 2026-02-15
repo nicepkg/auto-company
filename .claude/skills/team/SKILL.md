@@ -1,68 +1,124 @@
 ---
 name: team
-description: "根据任务快速组建临时 AI Agent 团队协作。自动从 .claude/agents/ 中选择最合适的成员组队。"
-argument-hint: "[任务描述]"
+description: "Assemble and run a temporary multi-role team using dedicated Codex prompts per role. Use when a task benefits from 2-5 specialist roles from .claude/agents/."
+argument-hint: "[task description]"
 disable-model-invocation: true
 ---
 
-# 组建临时团队
+# Codex Team Orchestration Skill
 
-你需要根据下面的任务，从公司现有的 AI Agent 中挑选最合适的成员，组建一支临时团队来协作完成。
+Use this skill to execute role-based parallel work with dedicated Codex prompt files and role-specific runs.
 
-## 任务
+## Task
 
 $ARGUMENTS
 
-## 可用 Agent
+## Role Source
 
-以下是公司所有 Agent，定义在 `.claude/agents/` 目录下：
+Agent role definitions live in `.claude/agents/`.
 
-| Agent | 文件 | 职能 |
-|-------|------|------|
-| CEO | `ceo-bezos` | 战略决策、商业模式、PR/FAQ、优先级 |
-| CTO | `cto-vogels` | 技术架构、技术选型、系统设计 |
-| 逆向思考 | `critic-munger` | 质疑决策、识别致命缺陷、Pre-Mortem、防止集体幻觉 |
-| 产品设计 | `product-norman` | 产品定义、用户体验、可用性 |
-| UI 设计 | `ui-duarte` | 视觉设计、设计系统、配色排版 |
-| 交互设计 | `interaction-cooper` | 用户流程、Persona、交互模式 |
-| 全栈开发 | `fullstack-dhh` | 代码实现、技术方案、开发 |
-| QA | `qa-bach` | 测试策略、质量把控、Bug 分析 |
-| DevOps/SRE | `devops-hightower` | 部署流水线、CI/CD、基础设施、监控运维 |
-| 营销 | `marketing-godin` | 定位、品牌、获客、内容 |
-| 运营 | `operations-pg` | 用户运营、增长、社区、PMF |
-| 销售 | `sales-ross` | 销售漏斗、转化策略 |
-| CFO | `cfo-campbell` | 定价策略、财务模型、成本控制、单位经济 |
-| 调研分析 | `research-thompson` | 市场调研、竞品分析、行业趋势、机会发现 |
+## Mandatory Runtime Design
 
-## 执行步骤
+For each role run, you must:
+- use a **dedicated prompt file**
+- run `codex exec` (not raw API calls)
+- set model to `gpt-5.3-codex`
+- set reasoning effort to `high`
+- run with full access mode (`--dangerously-bypass-approvals-and-sandbox`)
+- capture both final response and JSONL event stream
 
-### 1. 分析任务，选择成员
+## Execution Steps
 
-根据任务性质，选择 2-5 个最相关的 Agent 作为团队成员。选人原则：
-- **只选必要的**：不是人越多越好，精准匹配任务需求
-- **考虑协作链**：如果任务涉及从设计到开发，确保链路上的关键角色都在
-- **避免冗余**：职能重叠的不要同时选
+### 1. Select a focused team (2-5 roles)
 
-向创始人简要说明你选了谁、为什么选他们，然后立即开始组建。
+Pick only roles needed for the task. Avoid role overlap.
 
-### 2. 组建 Agent Team
+### 2. Prepare run workspace
 
-使用 Agent Teams 功能组建临时团队：
-- 创建团队，team_name 基于任务简短命名（英文、kebab-case）
-- 为每个成员创建具体的任务（TaskCreate），任务描述要包含足够上下文
-- 用 Task 工具 spawn 每个 teammate，`subagent_type` 选 `general-purpose`，在 prompt 中注入对应 agent 文件的完整内容作为角色设定
-- spawn teammate 时通过 prompt 告知：你的角色设定、要完成的任务、产出文档存放在 `docs/<role>/` 目录下
+```bash
+RUN_TS="$(date +%Y%m%d-%H%M%S)"
+RUN_DIR="logs/team/$RUN_TS"
+mkdir -p "$RUN_DIR"
+```
 
-### 3. 协调与汇总
+### 3. Spawn one dedicated Codex run per role
 
-- 作为 team lead 协调各成员工作
-- 收集各成员产出，汇总为统一的结论或方案
-- 如有分歧，列出各方观点供创始人决策
-- 完成后清理团队资源
+For each selected role `<role_id>`:
 
-## 注意事项
+1. Load role profile from `.claude/agents/<role_id>.md`
+2. Build a dedicated prompt file:
 
-- 所有沟通使用中文，技术术语保留英文
-- 每个成员产出的文档按约定存放在 `docs/<role>/` 下
-- 团队是临时的，任务完成后即解散
-- 创始人是最终决策者，Agent 提供建议但不替代决策
+```bash
+ROLE="<role_id>"
+PROMPT_FILE="$RUN_DIR/${ROLE}.prompt.md"
+FINAL_FILE="$RUN_DIR/${ROLE}.final.txt"
+EVENTS_FILE="$RUN_DIR/${ROLE}.events.jsonl"
+
+cat > "$PROMPT_FILE" <<'PROMPT'
+You are running as role: <role_id>.
+
+[Insert full role profile from .claude/agents/<role_id>.md]
+
+Task:
+$ARGUMENTS
+
+Requirements:
+- Execute from your role perspective.
+- Produce concrete deliverables, not generic discussion.
+- Write role output to docs/<mapped-role-dir>/.
+- End with a concise "Next Action" for handoff.
+PROMPT
+```
+
+3. Execute the role run:
+
+```bash
+codex exec - \
+  --model gpt-5.3-codex \
+  --json \
+  --skip-git-repo-check \
+  --dangerously-bypass-approvals-and-sandbox \
+  -c 'reasoning.effort="high"' \
+  -c 'model_reasoning_effort="high"' \
+  -o "$FINAL_FILE" \
+  < "$PROMPT_FILE" > "$EVENTS_FILE"
+```
+
+### 4. Synthesize and decide
+
+After all role runs finish:
+- read each `${ROLE}.final.txt`
+- merge into one decision-quality synthesis
+- explicitly resolve conflicts with rationale
+- produce one owner + one immediate next action
+
+### 5. Persist outputs
+
+- role artifacts must be in `docs/<role>/`
+- orchestration records remain in `logs/team/<timestamp>/`
+
+## Role Directory Mapping
+
+| Role ID | Output Directory |
+|---|---|
+| `ceo-bezos` | `docs/ceo/` |
+| `cto-vogels` | `docs/cto/` |
+| `critic-munger` | `docs/critic/` |
+| `product-norman` | `docs/product/` |
+| `ui-duarte` | `docs/ui/` |
+| `interaction-cooper` | `docs/interaction/` |
+| `fullstack-dhh` | `docs/fullstack/` |
+| `qa-bach` | `docs/qa/` |
+| `devops-hightower` | `docs/devops/` |
+| `marketing-godin` | `docs/marketing/` |
+| `operations-pg` | `docs/operations/` |
+| `sales-ross` | `docs/sales/` |
+| `cfo-campbell` | `docs/cfo/` |
+| `research-thompson` | `docs/research/` |
+
+## Guardrails
+
+- Do not ask for API keys; use the logged-in Codex CLI session.
+- Keep prompts role-specific and task-specific.
+- Keep teams temporary and minimal.
+- Prefer shipping concrete artifacts over discussion.
