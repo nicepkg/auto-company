@@ -1,18 +1,33 @@
-.PHONY: start start-awake awake stop status last cycles monitor pause resume install uninstall team help
+.PHONY: start start-awake awake stop status last cycles monitor pause resume install uninstall team cycle-005-evidence cycle-005-preflight cycle-005-preflight-enable-autorun cycle-005-env-sync help
 
 # === Quick Start ===
 
 start: ## Start the auto-loop in foreground
 	./auto-loop.sh
 
-start-awake: ## Start loop and prevent macOS sleep while running
-	caffeinate -d -i -s $(MAKE) start
+start-awake: ## Start loop and inhibit sleep while running (macOS/Linux)
+	@if [ "$$(uname -s)" = "Darwin" ]; then \
+		caffeinate -d -i -s $(MAKE) start; \
+	elif [ "$$(uname -s)" = "Linux" ] && command -v systemd-inhibit >/dev/null 2>&1; then \
+		systemd-inhibit --what=sleep --why="Auto Company loop" $(MAKE) start; \
+	else \
+		echo "Sleep inhibition helper not available; starting normally."; \
+		$(MAKE) start; \
+	fi
 
-awake: ## Prevent macOS sleep while current loop PID is running
+awake: ## Inhibit sleep while current loop PID is running (macOS/Linux)
 	@test -f .auto-loop.pid || (echo "No .auto-loop.pid found. Run 'make start' first."; exit 1)
 	@pid=$$(cat .auto-loop.pid); \
-	echo "Keeping Mac awake while PID $$pid is running..."; \
-	caffeinate -d -i -s -w $$pid
+	if [ "$$(uname -s)" = "Darwin" ]; then \
+		echo "Keeping macOS awake while PID $$pid is running..."; \
+		caffeinate -d -i -s -w $$pid; \
+	elif [ "$$(uname -s)" = "Linux" ] && command -v systemd-inhibit >/dev/null 2>&1; then \
+		echo "Inhibiting Linux sleep while PID $$pid is running..."; \
+		systemd-inhibit --what=sleep --why="Auto Company loop PID $$pid" bash -lc "while kill -0 $$pid 2>/dev/null; do sleep 5; done"; \
+	else \
+		echo "Sleep inhibition helper not available on this OS."; \
+		exit 1; \
+	fi
 
 stop: ## Stop the loop gracefully
 	./stop-loop.sh
@@ -31,12 +46,12 @@ cycles: ## Show cycle history summary
 monitor: ## Tail live logs (Ctrl+C to exit)
 	./monitor.sh
 
-# === Daemon (launchd) ===
+# === Daemon (launchd/systemd) ===
 
-install: ## Install launchd daemon (auto-start + crash recovery)
+install: ## Install daemon (auto-start + crash recovery)
 	./install-daemon.sh
 
-uninstall: ## Remove launchd daemon
+uninstall: ## Remove daemon
 	./install-daemon.sh --uninstall
 
 pause: ## Pause daemon (no auto-restart)
@@ -47,8 +62,22 @@ resume: ## Resume paused daemon
 
 # === Interactive ===
 
-team: ## Start interactive Claude session with /team skill
-	cd "$(CURDIR)" && claude
+team: ## Start interactive Codex session
+	cd "$(CURDIR)" && codex
+
+# === Evidence Runs ===
+
+cycle-005-evidence: ## Trigger Cycle 005 hosted persistence evidence workflow (requires gh auth + repo vars/secrets)
+	./scripts/devops/run-cycle-005-hosted-persistence-evidence.sh
+
+cycle-005-preflight: ## Trigger Cycle 005 hosted preflight-only run (no evidence + no PR)
+	./scripts/devops/run-cycle-005-hosted-persistence-evidence.sh --preflight-only
+
+cycle-005-preflight-enable-autorun: ## Run preflight-only; if green, enable scheduled runs via CYCLE_005_AUTORUN_ENABLED=true
+	./scripts/devops/run-cycle-005-hosted-persistence-evidence.sh --enable-autorun-after-preflight
+
+cycle-005-env-sync: ## Sync hosted runtime env vars (Supabase) via provider API + redeploy (requires gh write perms + repo vars/secrets)
+	./scripts/devops/run-cycle-005-hosted-runtime-env-sync.sh
 
 # === Maintenance ===
 

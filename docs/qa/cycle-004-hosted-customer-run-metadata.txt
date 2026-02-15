@@ -1,0 +1,8 @@
+run_id=pilot-001-customer-originated-20260213-121619
+timestamp=2026-02-13 12:16:19 PST
+base_url=http://localhost:3000
+manifest_path=/home/zjohn/autocomp/auto-company/projects/security-questionnaire-autopilot/runs/pilot-001-customer-originated-20260213-121619/export_package/manifest.json
+questionnaire=/home/zjohn/autocomp/auto-company/docs/sales/cycle-004-pilot-001-customer-questionnaire.csv
+source_1=/home/zjohn/autocomp/auto-company/docs/sales/cycle-004-pilot-001-source-security-program.md
+source_2=/home/zjohn/autocomp/auto-company/docs/sales/cycle-004-pilot-001-source-incident-response.md
+source_3=/home/zjohn/autocomp/auto-company/docs/sales/cycle-004-pilot-001-source-infrastructure-controls.md

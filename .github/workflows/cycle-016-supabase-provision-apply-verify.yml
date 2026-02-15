@@ -1,0 +1,116 @@
+name: cycle-016-supabase-provision-apply-verify
+
+on:
+  workflow_dispatch:
+    inputs:
+      sql_bundle:
+        description: "Workspace-relative path to the SQL bundle to apply"
+        required: true
+        default: "projects/security-questionnaire-autopilot/supabase/bundles/20260213_cycle003_hosted_workflow_migration_plus_seed.sql"
+      region:
+        description: "Optional Supabase region (may be ignored by Supabase API)"
+        required: false
+        default: ""
+      allow_reuse_existing:
+        description: "If true, reuse an existing project with the same name when found"
+        required: true
+        default: "true"
+      provision_timeout_seconds:
+        description: "Max seconds to wait for project status to become ACTIVE*"
+        required: true
+        default: "1800"
+
+jobs:
+  provision_apply_verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "projects/security-questionnaire-autopilot/package-lock.json"
+
+      - name: Install deps (hosted app)
+        working-directory: projects/security-questionnaire-autopilot
+        run: npm ci
+
+      - name: Provision Supabase project (Mgmt API)
+        id: provision
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_ORG_SLUG: ${{ secrets.SUPABASE_ORG_SLUG }}
+          SUPABASE_PROJECT_NAME: ${{ secrets.SUPABASE_PROJECT_NAME }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_REGION: ${{ inputs.region }}
+          SUPABASE_ALLOW_REUSE_EXISTING: ${{ inputs.allow_reuse_existing }}
+          SUPABASE_PROVISION_TIMEOUT_SECONDS: ${{ inputs.provision_timeout_seconds }}
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}" || (echo "Missing GitHub secret: SUPABASE_ACCESS_TOKEN" >&2; exit 2)
+          test -n "${SUPABASE_ORG_SLUG:-}" || (echo "Missing GitHub secret: SUPABASE_ORG_SLUG" >&2; exit 2)
+          test -n "${SUPABASE_PROJECT_NAME:-}" || (echo "Missing GitHub secret: SUPABASE_PROJECT_NAME" >&2; exit 2)
+          test -n "${SUPABASE_DB_PASSWORD:-}" || (echo "Missing GitHub secret: SUPABASE_DB_PASSWORD" >&2; exit 2)
+
+          ts="$(date -u +"%Y%m%dT%H%M%SZ")"
+          out_json="${{ github.workspace }}/docs/operations/cycle-016-supabase-provision-${ts}.json"
+          mkdir -p "${{ github.workspace }}/docs/operations"
+
+          out="$(./projects/security-questionnaire-autopilot/scripts/supabase-mgmt-provision-project.sh --out "$out_json" --quiet)"
+          echo "$out"
+
+          ref="$(echo "$out" | awk -F= '/^project_ref=/{print $2}')"
+          test -n "${ref:-}" || (echo "Failed to parse project_ref from provision output" >&2; exit 2)
+
+          echo "SUPABASE_PROJECT_REF=$ref" >> "$GITHUB_ENV"
+
+      - name: Build SUPABASE_DB_URL (ref + db password)
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_PROJECT_REF:-}" || (echo "Missing SUPABASE_PROJECT_REF (from provision step)" >&2; exit 2)
+          test -n "${SUPABASE_DB_PASSWORD:-}" || (echo "Missing GitHub secret: SUPABASE_DB_PASSWORD" >&2; exit 2)
+
+          # Mask secrets defensively (even though we don't print them).
+          echo "::add-mask::${SUPABASE_DB_PASSWORD}"
+
+          url="$(SUPABASE_PROJECT_REF="$SUPABASE_PROJECT_REF" SUPABASE_DB_PASSWORD="$SUPABASE_DB_PASSWORD" ./projects/security-questionnaire-autopilot/scripts/supabase-build-db-url.sh --stdout)"
+          echo "::add-mask::${url}"
+          echo "SUPABASE_DB_URL=$url" >> "$GITHUB_ENV"
+
+      - name: Apply SQL bundle (Supabase)
+        env:
+          SUPABASE_DB_URL: ${{ env.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_DB_URL:-}" || (echo "Missing SUPABASE_DB_URL (derived)" >&2; exit 2)
+          test -f "${{ github.workspace }}/${{ inputs.sql_bundle }}" || (echo "Bundle not found: ${{ inputs.sql_bundle }}" >&2; exit 2)
+          ./projects/security-questionnaire-autopilot/scripts/apply-supabase-bundle.sh "${{ github.workspace }}/${{ inputs.sql_bundle }}"
+
+      - name: Verify schema + seed (machine-checkable)
+        env:
+          SUPABASE_DB_URL: ${{ env.SUPABASE_DB_URL }}
+        working-directory: projects/security-questionnaire-autopilot
+        run: |
+          set -euo pipefail
+          ts="$(date -u +"%Y%m%dT%H%M%SZ")"
+          out="${{ github.workspace }}/docs/operations/cycle-016-supabase-verify-${ts}.json"
+          node scripts/verify-supabase-bundle-applied.mjs --out "$out"
+          jq -e '.ok == true' "$out" >/dev/null
+          echo "verify_json=$out"
+
+      - name: Upload artifacts (sanitized)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cycle-016-supabase-provision-apply-verify
+          if-no-files-found: ignore
+          path: |
+            docs/operations/cycle-016-supabase-provision-*.json
+            docs/operations/cycle-016-supabase-verify-*.json

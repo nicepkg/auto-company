@@ -1,0 +1,184 @@
+name: cycle-005-supabase-provision-apply-verify
+
+on:
+  workflow_dispatch:
+    inputs:
+      supabase_project_name:
+        description: "Supabase project name to create/reuse (must be unique in the org)"
+        required: true
+        default: "security-questionnaire-autopilot-cycle-005"
+      reuse_existing:
+        description: "Reuse an existing Supabase project with the same name (true/false)"
+        required: true
+        default: "true"
+      sql_bundle:
+        description: "Workspace-relative path to the SQL bundle to apply"
+        required: true
+        default: "projects/security-questionnaire-autopilot/supabase/bundles/20260213_cycle003_hosted_workflow_migration_plus_seed.sql"
+
+jobs:
+  provision_apply_verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "projects/security-questionnaire-autopilot/package-lock.json"
+
+      - name: Install deps (hosted app)
+        working-directory: projects/security-questionnaire-autopilot
+        run: npm ci
+
+      - name: Provision Supabase project (Management API; no secrets printed)
+        id: provision
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_ORG_SLUG: ${{ secrets.SUPABASE_ORG_SLUG }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_NAME: ${{ inputs.supabase_project_name }}
+          SUPABASE_ALLOW_REUSE_EXISTING: ${{ inputs.reuse_existing }}
+          SUPABASE_REGION_SELECTION_JSON: ${{ secrets.SUPABASE_REGION_SELECTION_JSON }}
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}" || (echo "Missing secret: SUPABASE_ACCESS_TOKEN" >&2; exit 2)
+          test -n "${SUPABASE_ORG_SLUG:-}" || (echo "Missing secret: SUPABASE_ORG_SLUG" >&2; exit 2)
+          test -n "${SUPABASE_DB_PASSWORD:-}" || (echo "Missing secret: SUPABASE_DB_PASSWORD" >&2; exit 2)
+          test -n "${SUPABASE_PROJECT_NAME:-}" || (echo "Missing input: supabase_project_name" >&2; exit 2)
+
+          # Defense in depth in case any downstream tool accidentally logs a value.
+          echo "::add-mask::${SUPABASE_ACCESS_TOKEN}"
+          echo "::add-mask::${SUPABASE_DB_PASSWORD}"
+
+          mkdir -p "$RUNNER_TEMP/supabase"
+          out_json="$RUNNER_TEMP/supabase/provision.json"
+          kv_out="$RUNNER_TEMP/supabase/provision.kv"
+
+          bash projects/security-questionnaire-autopilot/scripts/supabase-mgmt-provision-project.sh \
+            --out "$out_json" \
+            --quiet >"$kv_out"
+
+          ref="$(awk -F= '$1=="project_ref"{print $2}' "$kv_out" | head -n 1)"
+          test -n "${ref:-}" || (echo "Failed to parse project_ref from provision output" >&2; cat "$kv_out" >&2; exit 2)
+
+          echo "supabase_project_ref=$ref" >>"$GITHUB_OUTPUT"
+          echo "summary_json=$out_json" >>"$GITHUB_OUTPUT"
+
+      - name: Build SUPABASE_DB_URL from (ref + db password) without printing
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_REF: ${{ steps.provision.outputs.supabase_project_ref }}
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_PROJECT_REF:-}" || (echo "Missing provision output: supabase_project_ref" >&2; exit 2)
+          test -n "${SUPABASE_DB_PASSWORD:-}" || (echo "Missing secret: SUPABASE_DB_PASSWORD" >&2; exit 2)
+          echo "::add-mask::${SUPABASE_DB_PASSWORD}"
+          # Avoid printing secrets; capture stdout into a variable and write to $GITHUB_ENV.
+          url="$(SUPABASE_PROJECT_REF="$SUPABASE_PROJECT_REF" SUPABASE_DB_PASSWORD="$SUPABASE_DB_PASSWORD" ./projects/security-questionnaire-autopilot/scripts/supabase-build-db-url.sh --stdout)"
+          echo "::add-mask::${url}"
+          printf 'SUPABASE_DB_URL=%s\n' "$url" >>"$GITHUB_ENV"
+
+      - name: Persist non-secret connection hints + provision summary (workspace-relative)
+        if: always()
+        env:
+          SUPABASE_PROJECT_REF: ${{ steps.provision.outputs.supabase_project_ref }}
+          SUMMARY_JSON: ${{ steps.provision.outputs.summary_json }}
+        run: |
+          set -euo pipefail
+          mkdir -p projects/security-questionnaire-autopilot/runs
+
+          # Non-secret helper file for follow-up steps (configure hosted runtime env vars, etc).
+          if [ -n "${SUPABASE_PROJECT_REF:-}" ]; then
+            cat > projects/security-questionnaire-autopilot/runs/supabase-connection-nonsecret.txt <<EOF
+project_ref=${SUPABASE_PROJECT_REF}
+NEXT_PUBLIC_SUPABASE_URL=https://${SUPABASE_PROJECT_REF}.supabase.co
+EOF
+          fi
+
+          # Copy runner-temp outputs into a stable, workspace-relative location for artifacts.
+          if [ -n "${SUMMARY_JSON:-}" ] && [ -f "$SUMMARY_JSON" ]; then
+            cp "$SUMMARY_JSON" projects/security-questionnaire-autopilot/runs/supabase-provision-summary.json
+          fi
+          if [ -f "$RUNNER_TEMP/supabase/provision.kv" ]; then
+            cp "$RUNNER_TEMP/supabase/provision.kv" projects/security-questionnaire-autopilot/runs/supabase-provision.kv
+          fi
+
+      - name: Apply SQL bundle (Supabase)
+        working-directory: projects/security-questionnaire-autopilot
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_DB_URL:-}" || (echo "Missing env: SUPABASE_DB_URL" >&2; exit 2)
+          test -f "${{ github.workspace }}/${{ inputs.sql_bundle }}" || (echo "Bundle not found: ${{ inputs.sql_bundle }}" >&2; exit 2)
+          ./scripts/apply-supabase-bundle.sh "${{ github.workspace }}/${{ inputs.sql_bundle }}"
+
+      - name: Assert verification JSON is ok (non-secret)
+        working-directory: projects/security-questionnaire-autopilot
+        run: |
+          set -euo pipefail
+          test -f runs/supabase-verify.json || (echo "Missing runs/supabase-verify.json (apply step should create it)" >&2; exit 2)
+          jq -e '.ok == true' runs/supabase-verify.json >/dev/null
+
+      - name: Write safe supabase-verify.json if missing (always)
+        if: always()
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_ORG_SLUG: ${{ secrets.SUPABASE_ORG_SLUG }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p projects/security-questionnaire-autopilot/runs
+          if [ -f projects/security-questionnaire-autopilot/runs/supabase-verify.json ]; then
+            exit 0
+          fi
+
+          python - <<'PY'
+          import datetime, json, os
+
+          required = ["SUPABASE_ACCESS_TOKEN", "SUPABASE_ORG_SLUG", "SUPABASE_DB_PASSWORD"]
+          missing = [k for k in required if not os.environ.get(k)]
+
+          data = {
+              "checked_at_utc": datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+              "ok": False,
+              "reason": "workflow_failed_before_apply",
+              "missing_secrets": missing,
+              "note": "This file is a safe fallback artifact written by the workflow when earlier steps fail. Successful runs should produce ok=true from the apply verification step.",
+          }
+
+          out = "projects/security-questionnaire-autopilot/runs/supabase-verify.json"
+          with open(out, "w", encoding="utf-8") as f:
+              json.dump(data, f, indent=2, sort_keys=True)
+              f.write("\n")
+          PY
+
+      - name: Job summary (safe)
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "## Supabase Provision + Apply + Verify"
+            echo ""
+            echo "- Project name: `${{ inputs.supabase_project_name }}`"
+            echo "- Reuse existing: `${{ inputs.reuse_existing }}`"
+            echo "- SQL bundle: `${{ inputs.sql_bundle }}`"
+            echo "- Project ref: `${{ steps.provision.outputs.supabase_project_ref }}`"
+            echo "- Artifact: `cycle-005-supabase-provision-apply-verify`"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts (non-secret)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cycle-005-supabase-provision-apply-verify
+          if-no-files-found: warn
+          path: |
+            projects/security-questionnaire-autopilot/runs/supabase-provision-summary.json
+            projects/security-questionnaire-autopilot/runs/supabase-provision.kv
+            projects/security-questionnaire-autopilot/runs/supabase-connection-nonsecret.txt
+            projects/security-questionnaire-autopilot/runs/supabase-verify.json
