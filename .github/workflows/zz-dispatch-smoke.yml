@@ -1,0 +1,19 @@
+name: zz-dispatch-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "Optional note to include in logs"
+        required: false
+        default: ""
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Smoke
+        run: |
+          set -euo pipefail
+          echo "ok"
+          echo "note=${{ inputs.note }}"

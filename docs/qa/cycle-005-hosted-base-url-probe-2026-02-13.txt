@@ -1,0 +1,14 @@
+# Cycle 005 Hosted BASE_URL Probe (QA-Bach)
+date_utc=2026-02-13T23:29:14Z
+
+candidate_base_url  http  ok  supabase_url  service_role  note
+https://security-questionnaire-autopilot-hosted-git-main-nicepkg.vercel.app  404  -  -  -  content-type: text/plain; charset=utf-8 body_head='The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::jn8nf-1771025354695-8bf998c867be '
+https://security-questionnaire-autopilot-git-main-nicepkg.vercel.app  404  -  -  -  content-type: text/plain; charset=utf-8 body_head='The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::47hpf-1771025354769-89f12bb751b5 '
+https://auto-company-git-main-nicepkg.vercel.app  404  -  -  -  content-type: text/plain; charset=utf-8 body_head='The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::47fd7-1771025354843-c6327260457a '
+https://security-questionnaire-autopilot-hosted.vercel.app  404  -  -  -  content-type: text/plain; charset=utf-8 body_head='The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::76d6t-1771025354963-b8472ab7a5b7 '
+https://security-questionnaire-autopilot.vercel.app  404  -  -  -  content-type: text/plain; charset=utf-8 body_head='The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::s2xr5-1771025355060-2424d16becfa '
+https://auto-company.vercel.app  404  -  -  -  content-type: text/plain; charset=utf-8 body_head='The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::2g9jk-1771025355138-59bae373b53e '
+https://security-questionnaire-autopilot-hosted.pages.dev  000000  -  -  -  body_head='The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::2g9jk-1771025355138-59bae373b53e '
+https://security-questionnaire-autopilot.pages.dev  000000  -  -  -  body_head='The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::2g9jk-1771025355138-59bae373b53e '
+https://auto-company.pages.dev  200  -  -  -  content-type: text/html; charset=utf-8 body_head='<!DOCTYPE html><html lang="en"> <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-s'
+https://auto-company-hosted.pages.dev  000000  -  -  -  body_head='<!DOCTYPE html><html lang="en"> <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-s'

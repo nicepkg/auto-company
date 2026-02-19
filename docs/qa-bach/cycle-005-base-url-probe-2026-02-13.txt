@@ -1,0 +1,24 @@
+# Cycle 005 Hosted BASE_URL Probe (QA)
+# Date: 2026-02-13
+# Purpose: discover deployed Next.js base URL by probing env-health endpoint.
+
+set -euo pipefail
+
+timestamp_utc=2026-02-13T21:21:46Z
+
+candidates:
+- https://security-questionnaire-autopilot-hosted.vercel.app
+- https://security-questionnaire-autopilot.vercel.app
+- https://security-questionnaire-autopilot-hosted.pages.dev
+- https://security-questionnaire-autopilot.pages.dev
+- https://auto-company.vercel.app
+- https://auto-company-hosted.vercel.app
+- https://security-questionnaire-autopilot-hosted.vercel.app/
+
+results:
+- endpoint=https://security-questionnaire-autopilot-hosted.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::p5qcn-1771017706589-226690eb332c "
+- endpoint=https://security-questionnaire-autopilot.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::t7kqj-1771017706741-adbd3cc28496 "
+- endpoint=https://security-questionnaire-autopilot-hosted.pages.dev/api/workflow/env-health http_code=000000  body_head=""
+- endpoint=https://security-questionnaire-autopilot.pages.dev/api/workflow/env-health http_code=000000  body_head=""
+- endpoint=https://auto-company.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::77f4l-1771017706972-8186ffb8391c "
+- endpoint=https://auto-company-hosted.vercel.app/api/workflow/env-health http_code=404 content-type: text/plain; charset=utf-8 body_head="The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND  pdx1::pkcdt-1771017707189-4a8bddd8a51f "

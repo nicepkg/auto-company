@@ -1,0 +1,80 @@
+name: sq-autopilot-hosted-integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Optional override BASE_URL (single origin). If empty, uses repo variable HOSTED_WORKFLOW_BASE_URL."
+        required: false
+        default: ""
+      require_supabase_env:
+        description: "If true, require env-health to report Supabase env booleans true."
+        type: boolean
+        required: true
+        default: true
+      require_supabase_health:
+        description: "If true, also require supabase-health ok=true (requires Supabase configured + schema + seed)."
+        type: boolean
+        required: true
+        default: false
+  schedule:
+    - cron: "41 */6 * * *"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      INPUT_BASE_URL: ${{ github.event.inputs.base_url || '' }}
+      # Scheduled runs should be strict by default; manual dispatch can loosen/tighten via inputs.
+      INPUT_REQUIRE_SUPABASE_ENV: ${{ (github.event_name != 'workflow_dispatch' || github.event.inputs.require_supabase_env == true || github.event.inputs.require_supabase_env == 'true') && 'true' || 'false' }}
+      INPUT_REQUIRE_SUPABASE_HEALTH: ${{ (github.event_name == 'workflow_dispatch' && (github.event.inputs.require_supabase_health == true || github.event.inputs.require_supabase_health == 'true')) && 'true' || 'false' }}
+      HOSTED_WORKFLOW_BASE_URL: ${{ vars.HOSTED_WORKFLOW_BASE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve BASE_URL
+        id: base
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+
+          base="${INPUT_BASE_URL:-}"
+          if [ -z "$base" ]; then base="${HOSTED_WORKFLOW_BASE_URL:-}"; fi
+          if [ -z "$base" ]; then
+            echo "Missing BASE_URL (set repo variable HOSTED_WORKFLOW_BASE_URL or pass workflow input base_url)." >&2
+            exit 2
+          fi
+
+          # Canonical policy: one (1) origin only; no candidate scanning / selection.
+          resolved="$(./projects/security-questionnaire-autopilot/scripts/resolve-hosted-workflow-base-url.sh "$base" 2>artifacts/resolve-base-url.err)"
+          printf '%s\n' "$resolved" > artifacts/base-url.txt
+          echo "base_url=$resolved" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke hosted runtime
+        env:
+          BASE_URL: ${{ steps.base.outputs.base_url }}
+          REQUIRE_SUPABASE_ENV: ${{ env.INPUT_REQUIRE_SUPABASE_ENV }}
+          REQUIRE_SUPABASE_HEALTH: ${{ env.INPUT_REQUIRE_SUPABASE_HEALTH }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          ./projects/security-questionnaire-autopilot/scripts/smoke-hosted-runtime.sh "$BASE_URL" \
+            | tee artifacts/smoke.txt
+          curl -sS -m 12 "${BASE_URL%/}/api/workflow/env-health" > artifacts/env-health.json || true
+          curl -sS -m 12 "${BASE_URL%/}/api/workflow/supabase-health?requireSeed=1&requirePilotDeals=1" > artifacts/supabase-health.json || true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sq-autopilot-hosted-integration
+          if-no-files-found: warn
+          path: |
+            artifacts/base-url.txt
+            artifacts/resolve-base-url.err
+            artifacts/smoke.txt
+            artifacts/env-health.json
+            artifacts/supabase-health.json

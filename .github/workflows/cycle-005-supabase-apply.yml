@@ -1,0 +1,47 @@
+name: cycle-005-supabase-apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      sql_bundle:
+        description: "Workspace-relative path to the SQL bundle to apply"
+        required: true
+        default: "projects/security-questionnaire-autopilot/supabase/bundles/20260213_cycle003_hosted_workflow_migration_plus_seed.sql"
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "projects/security-questionnaire-autopilot/package-lock.json"
+
+      - name: Install deps (hosted app)
+        working-directory: projects/security-questionnaire-autopilot
+        run: npm ci
+
+      - name: Apply SQL bundle (Supabase)
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        working-directory: projects/security-questionnaire-autopilot
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_DB_URL:-}" || (echo "Missing secret: SUPABASE_DB_URL" >&2; exit 2)
+          test -f "${{ github.workspace }}/${{ inputs.sql_bundle }}" || (echo "Bundle not found: ${{ inputs.sql_bundle }}" >&2; exit 2)
+          ./scripts/apply-supabase-bundle.sh "${{ github.workspace }}/${{ inputs.sql_bundle }}"
+
+      - name: Upload verification artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cycle-005-supabase-apply
+          if-no-files-found: error
+          path: |
+            projects/security-questionnaire-autopilot/runs/supabase-verify.json

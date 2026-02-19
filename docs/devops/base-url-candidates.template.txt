@@ -1,0 +1,17 @@
+# Hosted workflow-app BASE_URL candidates (2-4 recommended)
+#
+# One URL per line. Comments and blank lines are ignored.
+# Use this file to curate candidates, then format it into a single string:
+#
+#   ./projects/security-questionnaire-autopilot/scripts/format-base-url-candidates.sh \
+#     docs/devops/base-url-candidates.template.txt
+#
+# Paste the output into ONE of:
+# - GitHub Actions repo variable: HOSTED_WORKFLOW_BASE_URL_CANDIDATES (recommended)
+# - GitHub Actions repo variable (legacy): CYCLE_005_BASE_URL_CANDIDATES
+# - GitHub Actions workflow_dispatch input: base_url
+#
+# Candidates must be the deployed Next.js app serving /api/workflow/* (not marketing site).
+
+https://<candidate-1>
+https://<candidate-2>

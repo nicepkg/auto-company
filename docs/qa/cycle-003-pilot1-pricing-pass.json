@@ -1,0 +1,24 @@
+{
+  "pricing_floor": {
+    "onboarding_fee": 2000,
+    "monthly_fee": 1800,
+    "included_questionnaires": 12,
+    "overage_fee": 150,
+    "gross_margin_floor": 0.7
+  },
+  "deal": {
+    "onboarding_fee": 2000.0,
+    "monthly_fee": 1800.0,
+    "included_questionnaires": 12,
+    "overage_fee": 150.0,
+    "expected_questionnaires": 14,
+    "estimated_cogs_per_questionnaire": 40.0
+  },
+  "projection": {
+    "monthly_revenue": 2100.0,
+    "monthly_cogs": 560.0,
+    "gross_margin": 0.7333
+  },
+  "approved": true,
+  "issues": []
+}
